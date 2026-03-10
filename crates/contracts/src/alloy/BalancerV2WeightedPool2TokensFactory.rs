@@ -1683,6 +1683,12 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
+        1u64 => {
+            Some((
+                alloy_primitives::address!("0xa5bf2ddf098bb0ef6d120c98217dd6b141c74ee0"),
+                Some(12349891u64),
+            ))
+        }
         10u64 => {
             Some((
                 alloy_primitives::address!("0xdAE7e32ADc5d490a43cCba1f0c736033F2b4eFca"),
@@ -1693,12 +1699,6 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
             Some((
                 alloy_primitives::address!("0xCF0a32Bbef8F064969F21f7e02328FB577382018"),
                 Some(222864u64),
-            ))
-        }
-        1u64 => {
-            Some((
-                alloy_primitives::address!("0xa5bf2ddf098bb0ef6d120c98217dd6b141c74ee0"),
-                Some(12349891u64),
             ))
         }
         137u64 => {

@@ -7838,30 +7838,6 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
-        56u64 => {
-            Some((
-                alloy_primitives::address!("0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"),
-                None,
-            ))
-        }
-        137u64 => {
-            Some((
-                alloy_primitives::address!("0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"),
-                None,
-            ))
-        }
-        8453u64 => {
-            Some((
-                alloy_primitives::address!("0x6bded42c6da8fbf0d2ba55b2fa120c5e0c8d7891"),
-                None,
-            ))
-        }
-        43114u64 => {
-            Some((
-                alloy_primitives::address!("0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"),
-                None,
-            ))
-        }
         1u64 => {
             Some((
                 alloy_primitives::address!("0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f"),
@@ -7874,9 +7850,33 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
                 None,
             ))
         }
+        8453u64 => {
+            Some((
+                alloy_primitives::address!("0x6bded42c6da8fbf0d2ba55b2fa120c5e0c8d7891"),
+                None,
+            ))
+        }
+        137u64 => {
+            Some((
+                alloy_primitives::address!("0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"),
+                None,
+            ))
+        }
+        56u64 => {
+            Some((
+                alloy_primitives::address!("0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"),
+                None,
+            ))
+        }
         10u64 => {
             Some((
                 alloy_primitives::address!("0x2abf469074dc0b54d793850807e6eb5faf2625b1"),
+                None,
+            ))
+        }
+        43114u64 => {
+            Some((
+                alloy_primitives::address!("0x1b02da8cb0d097eb8d57a175b88c7d8b47997506"),
                 None,
             ))
         }
