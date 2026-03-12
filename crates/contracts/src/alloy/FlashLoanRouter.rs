@@ -1748,31 +1748,7 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
-        42161u64 => {
-            Some((
-                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
-                None,
-            ))
-        }
         8453u64 => {
-            Some((
-                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
-                None,
-            ))
-        }
-        1u64 => {
-            Some((
-                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
-                None,
-            ))
-        }
-        137u64 => {
-            Some((
-                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
-                None,
-            ))
-        }
-        43114u64 => {
             Some((
                 alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
                 None,
@@ -1784,7 +1760,31 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
                 None,
             ))
         }
+        42161u64 => {
+            Some((
+                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
+                None,
+            ))
+        }
+        137u64 => {
+            Some((
+                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
+                None,
+            ))
+        }
+        1u64 => {
+            Some((
+                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
+                None,
+            ))
+        }
         100u64 => {
+            Some((
+                alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
+                None,
+            ))
+        }
+        43114u64 => {
             Some((
                 alloy_primitives::address!("0x9da8b48441583a2b93e2ef8213aad0ec0b392c69"),
                 None,

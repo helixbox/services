@@ -219,108 +219,6 @@
     "name": "settle",
     "inputs": [
       {
-        "name": "tokens",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "clearingPrices",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "trades",
-        "type": "tuple[]",
-        "internalType": "struct GPv2Trade.Data[]",
-        "components": [
-          {
-            "name": "sellTokenIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "buyTokenIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "receiver",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "sellAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "buyAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "validTo",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "appData",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "feeAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "flags",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "executedAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "signature",
-            "type": "bytes",
-            "internalType": "bytes"
-          }
-        ]
-      },
-      {
-        "name": "interactions",
-        "type": "tuple[][3]",
-        "internalType": "struct GPv2Interaction.Data[][3]",
-        "components": [
-          {
-            "name": "target",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "value",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "callData",
-            "type": "bytes",
-            "internalType": "bytes"
-          }
-        ]
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "settleOKX",
-    "inputs": [
-      {
         "name": "settleId",
         "type": "uint256",
         "internalType": "uint256"
@@ -482,6 +380,108 @@
             "name": "flag",
             "type": "uint256",
             "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleCow",
+    "inputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "clearingPrices",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "trades",
+        "type": "tuple[]",
+        "internalType": "struct GPv2Trade.Data[]",
+        "components": [
+          {
+            "name": "sellTokenIndex",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "buyTokenIndex",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "receiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "sellAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "buyAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "validTo",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "appData",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "feeAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flags",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "executedAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "interactions",
+        "type": "tuple[][3]",
+        "internalType": "struct GPv2Interaction.Data[][3]",
+        "components": [
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "callData",
+            "type": "bytes",
+            "internalType": "bytes"
           }
         ]
       }
