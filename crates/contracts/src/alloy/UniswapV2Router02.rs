@@ -8027,6 +8027,30 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
+        10u64 => {
+            Some((
+                alloy_primitives::address!("0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2"),
+                None,
+            ))
+        }
+        137u64 => {
+            Some((
+                alloy_primitives::address!("0xedf6066a2b290C185783862C7F4776A2C8077AD1"),
+                None,
+            ))
+        }
+        8453u64 => {
+            Some((
+                alloy_primitives::address!("0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24"),
+                None,
+            ))
+        }
+        11155111u64 => {
+            Some((
+                alloy_primitives::address!("0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3"),
+                None,
+            ))
+        }
         43114u64 => {
             Some((
                 alloy_primitives::address!("0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24"),
@@ -8045,37 +8069,13 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
                 None,
             ))
         }
-        137u64 => {
-            Some((
-                alloy_primitives::address!("0xedf6066a2b290C185783862C7F4776A2C8077AD1"),
-                None,
-            ))
-        }
-        10u64 => {
-            Some((
-                alloy_primitives::address!("0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2"),
-                None,
-            ))
-        }
-        11155111u64 => {
-            Some((
-                alloy_primitives::address!("0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3"),
-                None,
-            ))
-        }
-        42161u64 => {
-            Some((
-                alloy_primitives::address!("0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24"),
-                None,
-            ))
-        }
         56u64 => {
             Some((
                 alloy_primitives::address!("0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24"),
                 None,
             ))
         }
-        8453u64 => {
+        42161u64 => {
             Some((
                 alloy_primitives::address!("0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24"),
                 None,

@@ -3560,8 +3560,8 @@ interface GPv2Settlement {
     function removeSolver(address solver) external;
     function renounceOwnership() external;
     function setPreSignature(bytes memory orderUid, bool signed) external;
-    function settle(uint256 settleId, address[] memory tokens, uint256[] memory clearingPrices, TradeLib.Data[] memory trades, InteractionLib.Data[][3] memory interactions, SettlementTypes.SurplusFeeInfo memory surplusFeeInfo) external;
-    function settleCow(address[] memory tokens, uint256[] memory clearingPrices, GPv2Trade.Data[] memory trades, GPv2Interaction.Data[][3] memory interactions) external;
+    function settle(address[] memory tokens, uint256[] memory clearingPrices, GPv2Trade.Data[] memory trades, GPv2Interaction.Data[][3] memory interactions) external;
+    function settleOKX(uint256 settleId, address[] memory tokens, uint256[] memory clearingPrices, TradeLib.Data[] memory trades, InteractionLib.Data[][3] memory interactions, SettlementTypes.SurplusFeeInfo memory surplusFeeInfo) external;
     function simulateDelegatecall(address targetContract, bytes memory calldataPayload) external returns (bytes memory response);
     function simulateDelegatecallInternal(address targetContract, bytes memory calldataPayload) external returns (bytes memory response);
     function swap(IVault.BatchSwapStep[] memory swaps, address[] memory tokens, GPv2Trade.Data memory trade) external;
@@ -3794,6 +3794,108 @@ interface GPv2Settlement {
     "name": "settle",
     "inputs": [
       {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "clearingPrices",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "trades",
+        "type": "tuple[]",
+        "internalType": "struct GPv2Trade.Data[]",
+        "components": [
+          {
+            "name": "sellTokenIndex",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "buyTokenIndex",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "receiver",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "sellAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "buyAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "validTo",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "appData",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "feeAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "flags",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "executedAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "interactions",
+        "type": "tuple[][3]",
+        "internalType": "struct GPv2Interaction.Data[][3]",
+        "components": [
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "callData",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleOKX",
+    "inputs": [
+      {
         "name": "settleId",
         "type": "uint256",
         "internalType": "uint256"
@@ -3955,108 +4057,6 @@ interface GPv2Settlement {
             "name": "flag",
             "type": "uint256",
             "internalType": "uint256"
-          }
-        ]
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "settleCow",
-    "inputs": [
-      {
-        "name": "tokens",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "clearingPrices",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "trades",
-        "type": "tuple[]",
-        "internalType": "struct GPv2Trade.Data[]",
-        "components": [
-          {
-            "name": "sellTokenIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "buyTokenIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "receiver",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "sellAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "buyAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "validTo",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "appData",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "feeAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "flags",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "executedAmount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "signature",
-            "type": "bytes",
-            "internalType": "bytes"
-          }
-        ]
-      },
-      {
-        "name": "interactions",
-        "type": "tuple[][3]",
-        "internalType": "struct GPv2Interaction.Data[][3]",
-        "components": [
-          {
-            "name": "target",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "value",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "callData",
-            "type": "bytes",
-            "internalType": "bytes"
           }
         ]
       }
@@ -8596,14 +8596,221 @@ function setPreSignature(bytes memory orderUid, bool signed) external;
         }
     };
     #[derive(serde::Serialize, serde::Deserialize)]
-    #[derive()]
-    /**Function with signature `settle(uint256,address[],uint256[],(uint256,uint256,address,address,uint256,uint256,uint32,bytes32,uint256,uint256,(uint256,address,uint256)[],bytes,(uint256,address,uint256))[],(address,uint256,bytes)[][3],(uint256,address,uint256))` and selector `0xf1c95699`.
+    #[derive(Default, Debug, PartialEq, Eq, Hash)]
+    /**Function with signature `settle(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])` and selector `0x13d79a0b`.
 ```solidity
-function settle(uint256 settleId, address[] memory tokens, uint256[] memory clearingPrices, TradeLib.Data[] memory trades, InteractionLib.Data[][3] memory interactions, SettlementTypes.SurplusFeeInfo memory surplusFeeInfo) external;
+function settle(address[] memory tokens, uint256[] memory clearingPrices, GPv2Trade.Data[] memory trades, GPv2Interaction.Data[][3] memory interactions) external;
 ```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
     pub struct settleCall {
+        #[allow(missing_docs)]
+        pub tokens: ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
+        #[allow(missing_docs)]
+        pub clearingPrices: ::alloy_sol_types::private::Vec<
+            ::alloy_sol_types::private::primitives::aliases::U256,
+        >,
+        #[allow(missing_docs)]
+        pub trades: ::alloy_sol_types::private::Vec<
+            <GPv2Trade::Data as ::alloy_sol_types::SolType>::RustType,
+        >,
+        #[allow(missing_docs)]
+        pub interactions: [::alloy_sol_types::private::Vec<
+            <GPv2Interaction::Data as ::alloy_sol_types::SolType>::RustType,
+        >; 3usize],
+    }
+    ///Container type for the return parameters of the [`settle(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])`](settleCall) function.
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct settleReturn {}
+    #[allow(
+        non_camel_case_types,
+        non_snake_case,
+        clippy::pub_underscore_fields,
+        clippy::style
+    )]
+    const _: () = {
+        use ::alloy_sol_types as alloy_sol_types;
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = (
+                ::alloy_sol_types::sol_data::Array<::alloy_sol_types::sol_data::Address>,
+                ::alloy_sol_types::sol_data::Array<
+                    ::alloy_sol_types::sol_data::Uint<256>,
+                >,
+                ::alloy_sol_types::sol_data::Array<GPv2Trade::Data>,
+                ::alloy_sol_types::sol_data::FixedArray<
+                    ::alloy_sol_types::sol_data::Array<GPv2Interaction::Data>,
+                    3usize,
+                >,
+            );
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = (
+                ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
+                ::alloy_sol_types::private::Vec<
+                    ::alloy_sol_types::private::primitives::aliases::U256,
+                >,
+                ::alloy_sol_types::private::Vec<
+                    <GPv2Trade::Data as ::alloy_sol_types::SolType>::RustType,
+                >,
+                [::alloy_sol_types::private::Vec<
+                    <GPv2Interaction::Data as ::alloy_sol_types::SolType>::RustType,
+                >; 3usize],
+            );
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<settleCall> for UnderlyingRustTuple<'_> {
+                fn from(value: settleCall) -> Self {
+                    (
+                        value.tokens,
+                        value.clearingPrices,
+                        value.trades,
+                        value.interactions,
+                    )
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleCall {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self {
+                        tokens: tuple.0,
+                        clearingPrices: tuple.1,
+                        trades: tuple.2,
+                        interactions: tuple.3,
+                    }
+                }
+            }
+        }
+        {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            type UnderlyingSolTuple<'a> = ();
+            #[doc(hidden)]
+            type UnderlyingRustTuple<'a> = ();
+            #[cfg(test)]
+            #[allow(dead_code, unreachable_patterns)]
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
+                match _t {
+                    alloy_sol_types::private::AssertTypeEq::<
+                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
+                    >(_) => {}
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<settleReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: settleReturn) -> Self {
+                    ()
+                }
+            }
+            #[automatically_derived]
+            #[doc(hidden)]
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleReturn {
+                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
+                    Self {}
+                }
+            }
+        }
+        impl settleReturn {
+            fn _tokenize(
+                &self,
+            ) -> <settleCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
+                ()
+            }
+        }
+        #[automatically_derived]
+        impl alloy_sol_types::SolCall for settleCall {
+            type Parameters<'a> = (
+                ::alloy_sol_types::sol_data::Array<::alloy_sol_types::sol_data::Address>,
+                ::alloy_sol_types::sol_data::Array<
+                    ::alloy_sol_types::sol_data::Uint<256>,
+                >,
+                ::alloy_sol_types::sol_data::Array<GPv2Trade::Data>,
+                ::alloy_sol_types::sol_data::FixedArray<
+                    ::alloy_sol_types::sol_data::Array<GPv2Interaction::Data>,
+                    3usize,
+                >,
+            );
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            type Return = settleReturn;
+            type ReturnTuple<'a> = ();
+            type ReturnToken<'a> = <Self::ReturnTuple<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
+            const SIGNATURE: &'static str = "settle(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])";
+            const SELECTOR: [u8; 4] = [19u8, 215u8, 154u8, 11u8];
+            #[inline]
+            fn new<'a>(
+                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
+            ) -> Self {
+                tuple.into()
+            }
+            #[inline]
+            fn tokenize(&self) -> Self::Token<'_> {
+                (
+                    <::alloy_sol_types::sol_data::Array<
+                        ::alloy_sol_types::sol_data::Address,
+                    > as alloy_sol_types::SolType>::tokenize(&self.tokens),
+                    <::alloy_sol_types::sol_data::Array<
+                        ::alloy_sol_types::sol_data::Uint<256>,
+                    > as alloy_sol_types::SolType>::tokenize(&self.clearingPrices),
+                    <::alloy_sol_types::sol_data::Array<
+                        GPv2Trade::Data,
+                    > as alloy_sol_types::SolType>::tokenize(&self.trades),
+                    <::alloy_sol_types::sol_data::FixedArray<
+                        ::alloy_sol_types::sol_data::Array<GPv2Interaction::Data>,
+                        3usize,
+                    > as alloy_sol_types::SolType>::tokenize(&self.interactions),
+                )
+            }
+            #[inline]
+            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
+                settleReturn::_tokenize(ret)
+            }
+            #[inline]
+            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
+                    .map(Into::into)
+            }
+            #[inline]
+            fn abi_decode_returns_validate(
+                data: &[u8],
+            ) -> alloy_sol_types::Result<Self::Return> {
+                <Self::ReturnTuple<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Into::into)
+            }
+        }
+    };
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive()]
+    /**Function with signature `settleOKX(uint256,address[],uint256[],(uint256,uint256,address,address,uint256,uint256,uint32,bytes32,uint256,uint256,(uint256,address,uint256)[],bytes,(uint256,address,uint256))[],(address,uint256,bytes)[][3],(uint256,address,uint256))` and selector `0xe47d99a6`.
+```solidity
+function settleOKX(uint256 settleId, address[] memory tokens, uint256[] memory clearingPrices, TradeLib.Data[] memory trades, InteractionLib.Data[][3] memory interactions, SettlementTypes.SurplusFeeInfo memory surplusFeeInfo) external;
+```*/
+    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
+    #[derive(Clone)]
+    pub struct settleOKXCall {
         #[allow(missing_docs)]
         pub settleId: ::alloy_sol_types::private::primitives::aliases::U256,
         #[allow(missing_docs)]
@@ -8623,10 +8830,10 @@ function settle(uint256 settleId, address[] memory tokens, uint256[] memory clea
         #[allow(missing_docs)]
         pub surplusFeeInfo: <SettlementTypes::SurplusFeeInfo as ::alloy_sol_types::SolType>::RustType,
     }
-    ///Container type for the return parameters of the [`settle(uint256,address[],uint256[],(uint256,uint256,address,address,uint256,uint256,uint32,bytes32,uint256,uint256,(uint256,address,uint256)[],bytes,(uint256,address,uint256))[],(address,uint256,bytes)[][3],(uint256,address,uint256))`](settleCall) function.
+    ///Container type for the return parameters of the [`settleOKX(uint256,address[],uint256[],(uint256,uint256,address,address,uint256,uint256,uint32,bytes32,uint256,uint256,(uint256,address,uint256)[],bytes,(uint256,address,uint256))[],(address,uint256,bytes)[][3],(uint256,address,uint256))`](settleOKXCall) function.
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
-    pub struct settleReturn {}
+    pub struct settleOKXReturn {}
     #[allow(
         non_camel_case_types,
         non_snake_case,
@@ -8679,8 +8886,8 @@ function settle(uint256 settleId, address[] memory tokens, uint256[] memory clea
             }
             #[automatically_derived]
             #[doc(hidden)]
-            impl ::core::convert::From<settleCall> for UnderlyingRustTuple<'_> {
-                fn from(value: settleCall) -> Self {
+            impl ::core::convert::From<settleOKXCall> for UnderlyingRustTuple<'_> {
+                fn from(value: settleOKXCall) -> Self {
                     (
                         value.settleId,
                         value.tokens,
@@ -8693,7 +8900,7 @@ function settle(uint256 settleId, address[] memory tokens, uint256[] memory clea
             }
             #[automatically_derived]
             #[doc(hidden)]
-            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleCall {
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleOKXCall {
                 fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
                     Self {
                         settleId: tuple.0,
@@ -8725,28 +8932,28 @@ function settle(uint256 settleId, address[] memory tokens, uint256[] memory clea
             }
             #[automatically_derived]
             #[doc(hidden)]
-            impl ::core::convert::From<settleReturn> for UnderlyingRustTuple<'_> {
-                fn from(value: settleReturn) -> Self {
+            impl ::core::convert::From<settleOKXReturn> for UnderlyingRustTuple<'_> {
+                fn from(value: settleOKXReturn) -> Self {
                     ()
                 }
             }
             #[automatically_derived]
             #[doc(hidden)]
-            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleReturn {
+            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleOKXReturn {
                 fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
                     Self {}
                 }
             }
         }
-        impl settleReturn {
+        impl settleOKXReturn {
             fn _tokenize(
                 &self,
-            ) -> <settleCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
+            ) -> <settleOKXCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
                 ()
             }
         }
         #[automatically_derived]
-        impl alloy_sol_types::SolCall for settleCall {
+        impl alloy_sol_types::SolCall for settleOKXCall {
             type Parameters<'a> = (
                 ::alloy_sol_types::sol_data::Uint<256>,
                 ::alloy_sol_types::sol_data::Array<::alloy_sol_types::sol_data::Address>,
@@ -8763,13 +8970,13 @@ function settle(uint256 settleId, address[] memory tokens, uint256[] memory clea
             type Token<'a> = <Self::Parameters<
                 'a,
             > as alloy_sol_types::SolType>::Token<'a>;
-            type Return = settleReturn;
+            type Return = settleOKXReturn;
             type ReturnTuple<'a> = ();
             type ReturnToken<'a> = <Self::ReturnTuple<
                 'a,
             > as alloy_sol_types::SolType>::Token<'a>;
-            const SIGNATURE: &'static str = "settle(uint256,address[],uint256[],(uint256,uint256,address,address,uint256,uint256,uint32,bytes32,uint256,uint256,(uint256,address,uint256)[],bytes,(uint256,address,uint256))[],(address,uint256,bytes)[][3],(uint256,address,uint256))";
-            const SELECTOR: [u8; 4] = [241u8, 201u8, 86u8, 153u8];
+            const SIGNATURE: &'static str = "settleOKX(uint256,address[],uint256[],(uint256,uint256,address,address,uint256,uint256,uint32,bytes32,uint256,uint256,(uint256,address,uint256)[],bytes,(uint256,address,uint256))[],(address,uint256,bytes)[][3],(uint256,address,uint256))";
+            const SELECTOR: [u8; 4] = [228u8, 125u8, 153u8, 166u8];
             #[inline]
             fn new<'a>(
                 tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
@@ -8802,214 +9009,7 @@ function settle(uint256 settleId, address[] memory tokens, uint256[] memory clea
             }
             #[inline]
             fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
-                settleReturn::_tokenize(ret)
-            }
-            #[inline]
-            fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
-                <Self::ReturnTuple<
-                    '_,
-                > as alloy_sol_types::SolType>::abi_decode_sequence(data)
-                    .map(Into::into)
-            }
-            #[inline]
-            fn abi_decode_returns_validate(
-                data: &[u8],
-            ) -> alloy_sol_types::Result<Self::Return> {
-                <Self::ReturnTuple<
-                    '_,
-                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
-                    .map(Into::into)
-            }
-        }
-    };
-    #[derive(serde::Serialize, serde::Deserialize)]
-    #[derive(Default, Debug, PartialEq, Eq, Hash)]
-    /**Function with signature `settleCow(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])` and selector `0x9e9d47e8`.
-```solidity
-function settleCow(address[] memory tokens, uint256[] memory clearingPrices, GPv2Trade.Data[] memory trades, GPv2Interaction.Data[][3] memory interactions) external;
-```*/
-    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
-    #[derive(Clone)]
-    pub struct settleCowCall {
-        #[allow(missing_docs)]
-        pub tokens: ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
-        #[allow(missing_docs)]
-        pub clearingPrices: ::alloy_sol_types::private::Vec<
-            ::alloy_sol_types::private::primitives::aliases::U256,
-        >,
-        #[allow(missing_docs)]
-        pub trades: ::alloy_sol_types::private::Vec<
-            <GPv2Trade::Data as ::alloy_sol_types::SolType>::RustType,
-        >,
-        #[allow(missing_docs)]
-        pub interactions: [::alloy_sol_types::private::Vec<
-            <GPv2Interaction::Data as ::alloy_sol_types::SolType>::RustType,
-        >; 3usize],
-    }
-    ///Container type for the return parameters of the [`settleCow(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])`](settleCowCall) function.
-    #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
-    #[derive(Clone)]
-    pub struct settleCowReturn {}
-    #[allow(
-        non_camel_case_types,
-        non_snake_case,
-        clippy::pub_underscore_fields,
-        clippy::style
-    )]
-    const _: () = {
-        use ::alloy_sol_types as alloy_sol_types;
-        {
-            #[doc(hidden)]
-            #[allow(dead_code)]
-            type UnderlyingSolTuple<'a> = (
-                ::alloy_sol_types::sol_data::Array<::alloy_sol_types::sol_data::Address>,
-                ::alloy_sol_types::sol_data::Array<
-                    ::alloy_sol_types::sol_data::Uint<256>,
-                >,
-                ::alloy_sol_types::sol_data::Array<GPv2Trade::Data>,
-                ::alloy_sol_types::sol_data::FixedArray<
-                    ::alloy_sol_types::sol_data::Array<GPv2Interaction::Data>,
-                    3usize,
-                >,
-            );
-            #[doc(hidden)]
-            type UnderlyingRustTuple<'a> = (
-                ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
-                ::alloy_sol_types::private::Vec<
-                    ::alloy_sol_types::private::primitives::aliases::U256,
-                >,
-                ::alloy_sol_types::private::Vec<
-                    <GPv2Trade::Data as ::alloy_sol_types::SolType>::RustType,
-                >,
-                [::alloy_sol_types::private::Vec<
-                    <GPv2Interaction::Data as ::alloy_sol_types::SolType>::RustType,
-                >; 3usize],
-            );
-            #[cfg(test)]
-            #[allow(dead_code, unreachable_patterns)]
-            fn _type_assertion(
-                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
-            ) {
-                match _t {
-                    alloy_sol_types::private::AssertTypeEq::<
-                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
-                    >(_) => {}
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<settleCowCall> for UnderlyingRustTuple<'_> {
-                fn from(value: settleCowCall) -> Self {
-                    (
-                        value.tokens,
-                        value.clearingPrices,
-                        value.trades,
-                        value.interactions,
-                    )
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleCowCall {
-                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
-                    Self {
-                        tokens: tuple.0,
-                        clearingPrices: tuple.1,
-                        trades: tuple.2,
-                        interactions: tuple.3,
-                    }
-                }
-            }
-        }
-        {
-            #[doc(hidden)]
-            #[allow(dead_code)]
-            type UnderlyingSolTuple<'a> = ();
-            #[doc(hidden)]
-            type UnderlyingRustTuple<'a> = ();
-            #[cfg(test)]
-            #[allow(dead_code, unreachable_patterns)]
-            fn _type_assertion(
-                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
-            ) {
-                match _t {
-                    alloy_sol_types::private::AssertTypeEq::<
-                        <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
-                    >(_) => {}
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<settleCowReturn> for UnderlyingRustTuple<'_> {
-                fn from(value: settleCowReturn) -> Self {
-                    ()
-                }
-            }
-            #[automatically_derived]
-            #[doc(hidden)]
-            impl ::core::convert::From<UnderlyingRustTuple<'_>> for settleCowReturn {
-                fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
-                    Self {}
-                }
-            }
-        }
-        impl settleCowReturn {
-            fn _tokenize(
-                &self,
-            ) -> <settleCowCall as alloy_sol_types::SolCall>::ReturnToken<'_> {
-                ()
-            }
-        }
-        #[automatically_derived]
-        impl alloy_sol_types::SolCall for settleCowCall {
-            type Parameters<'a> = (
-                ::alloy_sol_types::sol_data::Array<::alloy_sol_types::sol_data::Address>,
-                ::alloy_sol_types::sol_data::Array<
-                    ::alloy_sol_types::sol_data::Uint<256>,
-                >,
-                ::alloy_sol_types::sol_data::Array<GPv2Trade::Data>,
-                ::alloy_sol_types::sol_data::FixedArray<
-                    ::alloy_sol_types::sol_data::Array<GPv2Interaction::Data>,
-                    3usize,
-                >,
-            );
-            type Token<'a> = <Self::Parameters<
-                'a,
-            > as alloy_sol_types::SolType>::Token<'a>;
-            type Return = settleCowReturn;
-            type ReturnTuple<'a> = ();
-            type ReturnToken<'a> = <Self::ReturnTuple<
-                'a,
-            > as alloy_sol_types::SolType>::Token<'a>;
-            const SIGNATURE: &'static str = "settleCow(address[],uint256[],(uint256,uint256,address,uint256,uint256,uint32,bytes32,uint256,uint256,uint256,bytes)[],(address,uint256,bytes)[][3])";
-            const SELECTOR: [u8; 4] = [158u8, 157u8, 71u8, 232u8];
-            #[inline]
-            fn new<'a>(
-                tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
-            ) -> Self {
-                tuple.into()
-            }
-            #[inline]
-            fn tokenize(&self) -> Self::Token<'_> {
-                (
-                    <::alloy_sol_types::sol_data::Array<
-                        ::alloy_sol_types::sol_data::Address,
-                    > as alloy_sol_types::SolType>::tokenize(&self.tokens),
-                    <::alloy_sol_types::sol_data::Array<
-                        ::alloy_sol_types::sol_data::Uint<256>,
-                    > as alloy_sol_types::SolType>::tokenize(&self.clearingPrices),
-                    <::alloy_sol_types::sol_data::Array<
-                        GPv2Trade::Data,
-                    > as alloy_sol_types::SolType>::tokenize(&self.trades),
-                    <::alloy_sol_types::sol_data::FixedArray<
-                        ::alloy_sol_types::sol_data::Array<GPv2Interaction::Data>,
-                        3usize,
-                    > as alloy_sol_types::SolType>::tokenize(&self.interactions),
-                )
-            }
-            #[inline]
-            fn tokenize_returns(ret: &Self::Return) -> Self::ReturnToken<'_> {
-                settleCowReturn::_tokenize(ret)
+                settleOKXReturn::_tokenize(ret)
             }
             #[inline]
             fn abi_decode_returns(data: &[u8]) -> alloy_sol_types::Result<Self::Return> {
@@ -10170,7 +10170,7 @@ function vaultRelayer() external view returns (address);
         #[allow(missing_docs)]
         settle(settleCall),
         #[allow(missing_docs)]
-        settleCow(settleCowCall),
+        settleOKX(settleOKXCall),
         #[allow(missing_docs)]
         simulateDelegatecall(simulateDelegatecallCall),
         #[allow(missing_docs)]
@@ -10196,6 +10196,7 @@ function vaultRelayer() external view returns (address);
         pub const SELECTORS: &'static [[u8; 4usize]] = &[
             [2u8, 204u8, 37u8, 13u8],
             [18u8, 236u8, 141u8, 204u8],
+            [19u8, 215u8, 154u8, 11u8],
             [21u8, 51u8, 123u8, 192u8],
             [35u8, 53u8, 199u8, 107u8],
             [36u8, 121u8, 251u8, 110u8],
@@ -10206,13 +10207,12 @@ function vaultRelayer() external view returns (address);
             [141u8, 165u8, 203u8, 91u8],
             [143u8, 213u8, 123u8, 146u8],
             [155u8, 85u8, 44u8, 194u8],
-            [158u8, 157u8, 71u8, 232u8],
             [162u8, 167u8, 213u8, 27u8],
             [208u8, 141u8, 51u8, 209u8],
+            [228u8, 125u8, 153u8, 166u8],
             [236u8, 88u8, 244u8, 184u8],
             [236u8, 108u8, 177u8, 63u8],
             [237u8, 159u8, 53u8, 206u8],
-            [241u8, 201u8, 86u8, 153u8],
             [242u8, 253u8, 227u8, 139u8],
             [246u8, 152u8, 218u8, 37u8],
             [248u8, 68u8, 54u8, 189u8],
@@ -10222,6 +10222,7 @@ function vaultRelayer() external view returns (address);
         pub const VARIANT_NAMES: &'static [&'static str] = &[
             ::core::stringify!(isSolver),
             ::core::stringify!(tokenApproveProxy),
+            ::core::stringify!(settle),
             ::core::stringify!(invalidateOrder),
             ::core::stringify!(authenticator),
             ::core::stringify!(filledAmount),
@@ -10232,13 +10233,12 @@ function vaultRelayer() external view returns (address);
             ::core::stringify!(owner),
             ::core::stringify!(removeSolver),
             ::core::stringify!(vaultRelayer),
-            ::core::stringify!(settleCow),
             ::core::stringify!(freePreSignatureStorage),
             ::core::stringify!(preSignature),
+            ::core::stringify!(settleOKX),
             ::core::stringify!(addSolver),
             ::core::stringify!(setPreSignature),
             ::core::stringify!(freeFilledAmountStorage),
-            ::core::stringify!(settle),
             ::core::stringify!(transferOwnership),
             ::core::stringify!(domainSeparator),
             ::core::stringify!(simulateDelegatecall),
@@ -10248,6 +10248,7 @@ function vaultRelayer() external view returns (address);
         pub const SIGNATURES: &'static [&'static str] = &[
             <isSolverCall as alloy_sol_types::SolCall>::SIGNATURE,
             <tokenApproveProxyCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <settleCall as alloy_sol_types::SolCall>::SIGNATURE,
             <invalidateOrderCall as alloy_sol_types::SolCall>::SIGNATURE,
             <authenticatorCall as alloy_sol_types::SolCall>::SIGNATURE,
             <filledAmountCall as alloy_sol_types::SolCall>::SIGNATURE,
@@ -10258,13 +10259,12 @@ function vaultRelayer() external view returns (address);
             <ownerCall as alloy_sol_types::SolCall>::SIGNATURE,
             <removeSolverCall as alloy_sol_types::SolCall>::SIGNATURE,
             <vaultRelayerCall as alloy_sol_types::SolCall>::SIGNATURE,
-            <settleCowCall as alloy_sol_types::SolCall>::SIGNATURE,
             <freePreSignatureStorageCall as alloy_sol_types::SolCall>::SIGNATURE,
             <preSignatureCall as alloy_sol_types::SolCall>::SIGNATURE,
+            <settleOKXCall as alloy_sol_types::SolCall>::SIGNATURE,
             <addSolverCall as alloy_sol_types::SolCall>::SIGNATURE,
             <setPreSignatureCall as alloy_sol_types::SolCall>::SIGNATURE,
             <freeFilledAmountStorageCall as alloy_sol_types::SolCall>::SIGNATURE,
-            <settleCall as alloy_sol_types::SolCall>::SIGNATURE,
             <transferOwnershipCall as alloy_sol_types::SolCall>::SIGNATURE,
             <domainSeparatorCall as alloy_sol_types::SolCall>::SIGNATURE,
             <simulateDelegatecallCall as alloy_sol_types::SolCall>::SIGNATURE,
@@ -10338,8 +10338,8 @@ function vaultRelayer() external view returns (address);
                     <setPreSignatureCall as alloy_sol_types::SolCall>::SELECTOR
                 }
                 Self::settle(_) => <settleCall as alloy_sol_types::SolCall>::SELECTOR,
-                Self::settleCow(_) => {
-                    <settleCowCall as alloy_sol_types::SolCall>::SELECTOR
+                Self::settleOKX(_) => {
+                    <settleOKXCall as alloy_sol_types::SolCall>::SELECTOR
                 }
                 Self::simulateDelegatecall(_) => {
                     <simulateDelegatecallCall as alloy_sol_types::SolCall>::SELECTOR
@@ -10396,6 +10396,15 @@ function vaultRelayer() external view returns (address);
                             .map(GPv2SettlementCalls::tokenApproveProxy)
                     }
                     tokenApproveProxy
+                },
+                {
+                    fn settle(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
+                        <settleCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
+                            .map(GPv2SettlementCalls::settle)
+                    }
+                    settle
                 },
                 {
                     fn invalidateOrder(
@@ -10504,15 +10513,6 @@ function vaultRelayer() external view returns (address);
                     vaultRelayer
                 },
                 {
-                    fn settleCow(
-                        data: &[u8],
-                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
-                        <settleCowCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
-                            .map(GPv2SettlementCalls::settleCow)
-                    }
-                    settleCow
-                },
-                {
                     fn freePreSignatureStorage(
                         data: &[u8],
                     ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
@@ -10533,6 +10533,15 @@ function vaultRelayer() external view returns (address);
                             .map(GPv2SettlementCalls::preSignature)
                     }
                     preSignature
+                },
+                {
+                    fn settleOKX(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
+                        <settleOKXCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
+                            .map(GPv2SettlementCalls::settleOKX)
+                    }
+                    settleOKX
                 },
                 {
                     fn addSolver(
@@ -10564,15 +10573,6 @@ function vaultRelayer() external view returns (address);
                             .map(GPv2SettlementCalls::freeFilledAmountStorage)
                     }
                     freeFilledAmountStorage
-                },
-                {
-                    fn settle(
-                        data: &[u8],
-                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
-                        <settleCall as alloy_sol_types::SolCall>::abi_decode_raw(data)
-                            .map(GPv2SettlementCalls::settle)
-                    }
-                    settle
                 },
                 {
                     fn transferOwnership(
@@ -10657,6 +10657,17 @@ function vaultRelayer() external view returns (address);
                             .map(GPv2SettlementCalls::tokenApproveProxy)
                     }
                     tokenApproveProxy
+                },
+                {
+                    fn settle(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
+                        <settleCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(GPv2SettlementCalls::settle)
+                    }
+                    settle
                 },
                 {
                     fn invalidateOrder(
@@ -10769,17 +10780,6 @@ function vaultRelayer() external view returns (address);
                     vaultRelayer
                 },
                 {
-                    fn settleCow(
-                        data: &[u8],
-                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
-                        <settleCowCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
-                                data,
-                            )
-                            .map(GPv2SettlementCalls::settleCow)
-                    }
-                    settleCow
-                },
-                {
                     fn freePreSignatureStorage(
                         data: &[u8],
                     ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
@@ -10800,6 +10800,17 @@ function vaultRelayer() external view returns (address);
                             .map(GPv2SettlementCalls::preSignature)
                     }
                     preSignature
+                },
+                {
+                    fn settleOKX(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
+                        <settleOKXCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(GPv2SettlementCalls::settleOKX)
+                    }
+                    settleOKX
                 },
                 {
                     fn addSolver(
@@ -10833,17 +10844,6 @@ function vaultRelayer() external view returns (address);
                             .map(GPv2SettlementCalls::freeFilledAmountStorage)
                     }
                     freeFilledAmountStorage
-                },
-                {
-                    fn settle(
-                        data: &[u8],
-                    ) -> alloy_sol_types::Result<GPv2SettlementCalls> {
-                        <settleCall as alloy_sol_types::SolCall>::abi_decode_raw_validate(
-                                data,
-                            )
-                            .map(GPv2SettlementCalls::settle)
-                    }
-                    settle
                 },
                 {
                     fn transferOwnership(
@@ -10970,8 +10970,8 @@ function vaultRelayer() external view returns (address);
                 Self::settle(inner) => {
                     <settleCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
-                Self::settleCow(inner) => {
-                    <settleCowCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
+                Self::settleOKX(inner) => {
+                    <settleOKXCall as alloy_sol_types::SolCall>::abi_encoded_size(inner)
                 }
                 Self::simulateDelegatecall(inner) => {
                     <simulateDelegatecallCall as alloy_sol_types::SolCall>::abi_encoded_size(
@@ -11093,8 +11093,8 @@ function vaultRelayer() external view returns (address);
                 Self::settle(inner) => {
                     <settleCall as alloy_sol_types::SolCall>::abi_encode_raw(inner, out)
                 }
-                Self::settleCow(inner) => {
-                    <settleCowCall as alloy_sol_types::SolCall>::abi_encode_raw(
+                Self::settleOKX(inner) => {
+                    <settleOKXCall as alloy_sol_types::SolCall>::abi_encode_raw(
                         inner,
                         out,
                     )
@@ -11790,6 +11790,29 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
         ///Creates a new call builder for the [`settle`] function.
         pub fn settle(
             &self,
+            tokens: ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
+            clearingPrices: ::alloy_sol_types::private::Vec<
+                ::alloy_sol_types::private::primitives::aliases::U256,
+            >,
+            trades: ::alloy_sol_types::private::Vec<
+                <GPv2Trade::Data as ::alloy_sol_types::SolType>::RustType,
+            >,
+            interactions: [::alloy_sol_types::private::Vec<
+                <GPv2Interaction::Data as ::alloy_sol_types::SolType>::RustType,
+            >; 3usize],
+        ) -> alloy_contract::SolCallBuilder<&P, settleCall, N> {
+            self.call_builder(
+                &settleCall {
+                    tokens,
+                    clearingPrices,
+                    trades,
+                    interactions,
+                },
+            )
+        }
+        ///Creates a new call builder for the [`settleOKX`] function.
+        pub fn settleOKX(
+            &self,
             settleId: ::alloy_sol_types::private::primitives::aliases::U256,
             tokens: ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
             clearingPrices: ::alloy_sol_types::private::Vec<
@@ -11802,38 +11825,15 @@ the bytecode concatenated with the constructor's ABI-encoded arguments.*/
                 <InteractionLib::Data as ::alloy_sol_types::SolType>::RustType,
             >; 3usize],
             surplusFeeInfo: <SettlementTypes::SurplusFeeInfo as ::alloy_sol_types::SolType>::RustType,
-        ) -> alloy_contract::SolCallBuilder<&P, settleCall, N> {
+        ) -> alloy_contract::SolCallBuilder<&P, settleOKXCall, N> {
             self.call_builder(
-                &settleCall {
+                &settleOKXCall {
                     settleId,
                     tokens,
                     clearingPrices,
                     trades,
                     interactions,
                     surplusFeeInfo,
-                },
-            )
-        }
-        ///Creates a new call builder for the [`settleCow`] function.
-        pub fn settleCow(
-            &self,
-            tokens: ::alloy_sol_types::private::Vec<::alloy_sol_types::private::Address>,
-            clearingPrices: ::alloy_sol_types::private::Vec<
-                ::alloy_sol_types::private::primitives::aliases::U256,
-            >,
-            trades: ::alloy_sol_types::private::Vec<
-                <GPv2Trade::Data as ::alloy_sol_types::SolType>::RustType,
-            >,
-            interactions: [::alloy_sol_types::private::Vec<
-                <GPv2Interaction::Data as ::alloy_sol_types::SolType>::RustType,
-            >; 3usize],
-        ) -> alloy_contract::SolCallBuilder<&P, settleCowCall, N> {
-            self.call_builder(
-                &settleCowCall {
-                    tokens,
-                    clearingPrices,
-                    trades,
-                    interactions,
                 },
             )
         }
@@ -11995,16 +11995,58 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
+        10u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(134254624u64),
+            ))
+        }
         11155111u64 => {
             Some((
                 alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
                 Some(4717488u64),
             ))
         }
+        59144u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(24333100u64),
+            ))
+        }
+        56u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(48173641u64),
+            ))
+        }
         43114u64 => {
             Some((
                 alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
                 Some(59891356u64),
+            ))
+        }
+        8453u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(21407238u64),
+            ))
+        }
+        9745u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(3439711u64),
+            ))
+        }
+        57073u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(34436849u64),
+            ))
+        }
+        137u64 => {
+            Some((
+                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
+                Some(45859743u64),
             ))
         }
         42161u64 => {
@@ -12019,58 +12061,16 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
                 Some(12593265u64),
             ))
         }
-        8453u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(21407238u64),
-            ))
-        }
-        137u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(45859743u64),
-            ))
-        }
         232u64 => {
             Some((
                 alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
                 Some(2621745u64),
             ))
         }
-        9745u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(3439711u64),
-            ))
-        }
-        10u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(134254624u64),
-            ))
-        }
-        57073u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(34436849u64),
-            ))
-        }
         100u64 => {
             Some((
                 alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
                 Some(16465100u64),
-            ))
-        }
-        59144u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(24333100u64),
-            ))
-        }
-        56u64 => {
-            Some((
-                alloy_primitives::address!("0x9008D19f58AAbD9eD0D60971565AA8510560ab41"),
-                Some(48173641u64),
             ))
         }
         _ => None,

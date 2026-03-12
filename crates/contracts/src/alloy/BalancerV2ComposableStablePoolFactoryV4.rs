@@ -3771,30 +3771,6 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
-        1u64 => {
-            Some((
-                alloy_primitives::address!("0xfADa0f4547AB2de89D1304A668C39B3E09Aa7c76"),
-                Some(16878679u64),
-            ))
-        }
-        137u64 => {
-            Some((
-                alloy_primitives::address!("0x6Ab5549bBd766A43aFb687776ad8466F8b42f777"),
-                Some(40613553u64),
-            ))
-        }
-        100u64 => {
-            Some((
-                alloy_primitives::address!("0xD87F44Df0159DC78029AB9CA7D7e57E7249F5ACD"),
-                Some(27056416u64),
-            ))
-        }
-        10u64 => {
-            Some((
-                alloy_primitives::address!("0x1802953277FD955f9a254B80Aa0582f193cF1d77"),
-                Some(82748180u64),
-            ))
-        }
         43114u64 => {
             Some((
                 alloy_primitives::address!("0x3B1eb8EB7b43882b385aB30533D9A2BeF9052a98"),
@@ -3805,6 +3781,30 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
             Some((
                 alloy_primitives::address!("0xA3fd20E29358c056B727657E83DFd139abBC9924"),
                 Some(3425277u64),
+            ))
+        }
+        1u64 => {
+            Some((
+                alloy_primitives::address!("0xfADa0f4547AB2de89D1304A668C39B3E09Aa7c76"),
+                Some(16878679u64),
+            ))
+        }
+        10u64 => {
+            Some((
+                alloy_primitives::address!("0x1802953277FD955f9a254B80Aa0582f193cF1d77"),
+                Some(82748180u64),
+            ))
+        }
+        100u64 => {
+            Some((
+                alloy_primitives::address!("0xD87F44Df0159DC78029AB9CA7D7e57E7249F5ACD"),
+                Some(27056416u64),
+            ))
+        }
+        137u64 => {
+            Some((
+                alloy_primitives::address!("0x6Ab5549bBd766A43aFb687776ad8466F8b42f777"),
+                Some(40613553u64),
             ))
         }
         42161u64 => {

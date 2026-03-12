@@ -2077,34 +2077,10 @@ use {
 };
 pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
     match chain_id {
-        11155111u64 => {
-            Some((
-                alloy_primitives::address!("0x45fFd460cC6642B8D8Fb12373DFd77Ceb0f4932B"),
-                Some(25415236u64),
-            ))
-        }
-        42161u64 => {
-            Some((
-                alloy_primitives::address!("0x1802953277FD955f9a254B80Aa0582f193cF1d77"),
-                Some(4859669u64),
-            ))
-        }
-        100u64 => {
-            Some((
-                alloy_primitives::address!("0x85a80afee867aDf27B50BdB7b76DA70f1E853062"),
-                Some(25415236u64),
-            ))
-        }
         1u64 => {
             Some((
                 alloy_primitives::address!("0x0F3e0c4218b7b0108a3643cFe9D3ec0d4F57c54e"),
                 Some(13730248u64),
-            ))
-        }
-        137u64 => {
-            Some((
-                alloy_primitives::address!("0x41B953164995c11C81DA73D212ED8Af25741b7Ac"),
-                Some(22067480u64),
             ))
         }
         8453u64 => {
@@ -2113,10 +2089,10 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
                 Some(1206531u64),
             ))
         }
-        43114u64 => {
+        137u64 => {
             Some((
-                alloy_primitives::address!("0x0F3e0c4218b7b0108a3643cFe9D3ec0d4F57c54e"),
-                Some(26386552u64),
+                alloy_primitives::address!("0x41B953164995c11C81DA73D212ED8Af25741b7Ac"),
+                Some(22067480u64),
             ))
         }
         10u64 => {
@@ -2125,10 +2101,34 @@ pub const fn deployment_info(chain_id: u64) -> Option<(Address, Option<u64>)> {
                 Some(7005915u64),
             ))
         }
+        11155111u64 => {
+            Some((
+                alloy_primitives::address!("0x45fFd460cC6642B8D8Fb12373DFd77Ceb0f4932B"),
+                Some(25415236u64),
+            ))
+        }
+        100u64 => {
+            Some((
+                alloy_primitives::address!("0x85a80afee867aDf27B50BdB7b76DA70f1E853062"),
+                Some(25415236u64),
+            ))
+        }
+        43114u64 => {
+            Some((
+                alloy_primitives::address!("0x0F3e0c4218b7b0108a3643cFe9D3ec0d4F57c54e"),
+                Some(26386552u64),
+            ))
+        }
         56u64 => {
             Some((
                 alloy_primitives::address!("0xC128468b7Ce63eA702C1f104D55A2566b13D3ABD"),
                 Some(22691243u64),
+            ))
+        }
+        42161u64 => {
+            Some((
+                alloy_primitives::address!("0x1802953277FD955f9a254B80Aa0582f193cF1d77"),
+                Some(4859669u64),
             ))
         }
         _ => None,

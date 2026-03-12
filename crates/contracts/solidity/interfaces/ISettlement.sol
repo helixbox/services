@@ -101,7 +101,7 @@ interface GPv2Settlement {
 
     function freeFilledAmountStorage(bytes[] memory orderUids) external;
     function freePreSignatureStorage(bytes[] memory orderUids) external;
-    function settleCow(address[] memory tokens, uint256[] memory clearingPrices, GPv2Trade.Data[] memory trades, GPv2Interaction.Data[][3] memory interactions) external;
+    function settle(address[] memory tokens, uint256[] memory clearingPrices, GPv2Trade.Data[] memory trades, GPv2Interaction.Data[][3] memory interactions) external;
     function swap(IVault.BatchSwapStep[] memory swaps, address[] memory tokens, GPv2Trade.Data memory trade) external;
     function vault() external view returns (address);
     function vaultRelayer() external view returns (address);
@@ -119,7 +119,7 @@ interface GPv2Settlement {
     function removeSolver(address solver) external;
     function renounceOwnership() external;
     function setPreSignature(bytes memory orderUid, bool signed) external;
-    function settle(uint256 settleId, address[] memory tokens, uint256[] memory clearingPrices, TradeLib.Data[] memory trades, InteractionLib.Data[][3] memory interactions, SettlementTypes.SurplusFeeInfo memory surplusFeeInfo) external;
+    function settleOKX(uint256 settleId, address[] memory tokens, uint256[] memory clearingPrices, TradeLib.Data[] memory trades, InteractionLib.Data[][3] memory interactions, SettlementTypes.SurplusFeeInfo memory surplusFeeInfo) external;
     function simulateDelegatecall(address targetContract, bytes memory calldataPayload) external returns (bytes memory response);
     function simulateDelegatecallInternal(address targetContract, bytes memory calldataPayload) external returns (bytes memory response);
     function tokenApproveProxy() external view returns (address);
