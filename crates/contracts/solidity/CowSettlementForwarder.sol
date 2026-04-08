@@ -17,6 +17,8 @@ contract CowSettlementForwarder {
 
     error Unauthorized();
 
+    receive() external payable {}
+
     /// @notice Forward `data` to `target` via CALL.
     /// @dev Only approved callers can invoke this. In EIP-7702 context,
     /// `address(this)` = solver EOA, so `target` sees `msg.sender = solver EOA`.
