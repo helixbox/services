@@ -27,8 +27,8 @@ The `Makefile` was designed to be somewhat general.
 You should be able to just append a new Solidity file to the `CONTRACTS` variable definition:
 
 ```diff
---- a/crates/contracts/solidity/Makefile
-+++ b/crates/contracts/solidity/Makefile
+--- a/contracts/solidity/Makefile
++++ b/contracts/solidity/Makefile
 @@ -7,7 +7,7 @@ SOLFLAGS := --overwrite --abi --bin --bin-runtime --metadata-hash none --optimiz
  TARGETDIR   := ../../../target/solidity
  ARTIFACTDIR := ../artifacts

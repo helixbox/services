@@ -61,7 +61,7 @@ bug.
 ## Skip these files
 
 - `Cargo.lock`
-- Generated contract bindings under `crates/contracts/`
+- Generated contract bindings under `contracts/generated/`
 - Database migration files (review schema changes only, not the generated SQL)
 - Test fixture JSON files
 

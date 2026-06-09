@@ -117,7 +117,7 @@ flowchart TB
 - `crates/gas-price-estimation`: gas price estimation
 - `crates/database`: schema + DB helpers used by `orderbook` and `autopilot`
 - `crates/model`: API/data model types used across services
-- `crates/contracts`: Alloy-based contract bindings for on-chain interaction
+- `contracts`: contract artifacts, generator, and generated Alloy bindings for on-chain interaction
 - `crates/ethrpc` + `crates/chain`: Ethereum RPC / chain interaction helpers
 - `crates/observe`: logging/metrics initialization helpers
 - `crates/app-data`: order app-data validation
@@ -143,8 +143,8 @@ Each service follows the same pattern: `main.rs` just sets up the allocator and 
   - Typical changes: routing/matching math, solution generation
 
 - **On-chain bindings**
-  - Start here: `crates/contracts/README.md`
-  - Typical changes: adding new contract artifacts/bindings, updating ABIs, exposing bindings in `lib.rs`
+  - Start here: `contracts/README.md`
+  - Typical changes: adding new contract artifacts/bindings, updating ABIs, regenerating the facade and per-contract crates
 
 - **Database schema + migrations**
   - Start here: `database/README.md` (schema overview) and `crates/database` (query code)

@@ -15,13 +15,13 @@ contracts = { git = "https://github.com/cowprotocol/cow-contracts" }
 Then use:
 
 ```rust
-use contracts::alloy::{GPv2Settlement, ERC20, WETH9};
+use contracts::{GPv2Settlement, ERC20, WETH9};
 ```
 
 ## Adding a new contract
 
 1. Add the ABI artifact JSON to `artifacts/` (manually or via `cargo run -p contracts-generate -- vendor`)
-2. Add the contract definition to `crates/contracts-generate/src/main.rs`
+2. Add the contract definition to `contracts/src/main.rs`
 3. Run `cargo run -p contracts-generate`
 4. Run `cargo check -p contracts` to verify
 5. Commit and open a PR
@@ -43,7 +43,7 @@ cargo run -p contracts-generate -- vendor    # Download/update ABI artifacts
 cargo run -p contracts-generate -- all       # Vendor artifacts then generate bindings
 ```
 
-The `generate` command regenerates all per-contract crates in `generated/`, updates the facade module at `crates/contracts/src/alloy/mod.rs`, and updates the dependency section in `crates/contracts/Cargo.toml`.
+The `generate` command regenerates all per-contract crates in `generated/` and updates the facade module at `generated/contracts-facade/src/lib.rs`.
 
 ## Compiling Solidity contracts
 
