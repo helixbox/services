@@ -1048,6 +1048,7 @@ dependencies = [
  "cow-contract-cowammlegacyhelper",
  "cow-contract-cowammuniswapv2priceoracle",
  "cow-contract-cowprotocoltoken",
+ "cow-contract-cowsettlementforwarder",
  "cow-contract-cowswapethflow",
  "cow-contract-cowswaponchainorders",
  "cow-contract-erc1271signaturevalidator",
@@ -1065,6 +1066,7 @@ dependencies = [
  "cow-contract-hookstrampoline",
  "cow-contract-icowwrapper",
  "cow-contract-ierc4626",
+ "cow-contract-isettlementokx",
  "cow-contract-iswaprpair",
  "cow-contract-iuniswaplikepair",
  "cow-contract-iuniswaplikerouter",
@@ -1471,6 +1473,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cow-contract-cowsettlementforwarder"
+version = "0.1.0"
+dependencies = [
+ "alloy-contract",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-sol-types",
+ "anyhow",
+]
+
+[[package]]
 name = "cow-contract-cowswapethflow"
 version = "0.1.0"
 dependencies = [
@@ -1648,6 +1661,17 @@ dependencies = [
 
 [[package]]
 name = "cow-contract-ierc4626"
+version = "0.1.0"
+dependencies = [
+ "alloy-contract",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-sol-types",
+ "anyhow",
+]
+
+[[package]]
+name = "cow-contract-isettlementokx"
 version = "0.1.0"
 dependencies = [
  "alloy-contract",

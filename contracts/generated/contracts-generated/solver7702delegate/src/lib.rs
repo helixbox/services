@@ -1,10 +1,4 @@
-#![allow(
-    unused_imports,
-    unused_attributes,
-    clippy::all,
-    rustdoc::all,
-    non_snake_case
-)]
+#![allow(unused_imports, unused_attributes, clippy::all, rustdoc::all, non_snake_case)]
 //! Auto-generated contract bindings. Do not edit.
 /**
 
@@ -58,7 +52,8 @@ interface Solver7702Delegate {
     clippy::empty_structs_with_brackets
 )]
 pub mod Solver7702Delegate {
-    use {super::*, alloy_sol_types};
+    use super::*;
+    use alloy_sol_types as alloy_sol_types;
     /// The creation / init bytecode of the contract.
     ///
     /// ```text
@@ -71,9 +66,9 @@ pub mod Solver7702Delegate {
     );
     #[derive(Default, Debug, PartialEq, Eq, Hash)]
     /**Custom error with signature `Unauthorized(address)` and selector `0x8e4a23d6`.
-    ```solidity
-    error Unauthorized(address sender);
-    ```*/
+```solidity
+error Unauthorized(address sender);
+```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
     pub struct Unauthorized {
@@ -87,7 +82,7 @@ pub mod Solver7702Delegate {
         clippy::style
     )]
     const _: () = {
-        use alloy_sol_types;
+        use alloy_sol_types as alloy_sol_types;
         #[doc(hidden)]
         #[allow(dead_code)]
         type UnderlyingSolTuple<'a> = (alloy_sol_types::sol_data::Address,);
@@ -95,7 +90,9 @@ pub mod Solver7702Delegate {
         type UnderlyingRustTuple<'a> = (alloy_sol_types::private::Address,);
         #[cfg(test)]
         #[allow(dead_code, unreachable_patterns)]
-        fn _type_assertion(_t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>) {
+        fn _type_assertion(
+            _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+        ) {
             match _t {
                 alloy_sol_types::private::AssertTypeEq::<
                     <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
@@ -119,18 +116,17 @@ pub mod Solver7702Delegate {
         #[automatically_derived]
         impl alloy_sol_types::SolError for Unauthorized {
             type Parameters<'a> = UnderlyingSolTuple<'a>;
-            type Token<'a> = <Self::Parameters<'a> as alloy_sol_types::SolType>::Token<'a>;
-
-            const SELECTOR: [u8; 4] = [142u8, 74u8, 35u8, 214u8];
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
             const SIGNATURE: &'static str = "Unauthorized(address)";
-
+            const SELECTOR: [u8; 4] = [142u8, 74u8, 35u8, 214u8];
             #[inline]
             fn new<'a>(
                 tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
             ) -> Self {
                 tuple.into()
             }
-
             #[inline]
             fn tokenize(&self) -> Self::Token<'_> {
                 (
@@ -139,20 +135,19 @@ pub mod Solver7702Delegate {
                     ),
                 )
             }
-
             #[inline]
             fn abi_decode_raw_validate(data: &[u8]) -> alloy_sol_types::Result<Self> {
-                <Self::Parameters<'_> as alloy_sol_types::SolType>::abi_decode_sequence_validate(
-                    data,
-                )
-                .map(Self::new)
+                <Self::Parameters<
+                    '_,
+                > as alloy_sol_types::SolType>::abi_decode_sequence_validate(data)
+                    .map(Self::new)
             }
         }
     };
     /**Constructor`.
-    ```solidity
-    constructor(address[5] approvedCallers);
-    ```*/
+```solidity
+constructor(address[5] approvedCallers);
+```*/
     #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields)]
     #[derive(Clone)]
     pub struct constructorCall {
@@ -160,18 +155,25 @@ pub mod Solver7702Delegate {
         pub approvedCallers: [alloy_sol_types::private::Address; 5usize],
     }
     const _: () = {
-        use alloy_sol_types;
+        use alloy_sol_types as alloy_sol_types;
         {
             #[doc(hidden)]
             #[allow(dead_code)]
             type UnderlyingSolTuple<'a> = (
-                alloy_sol_types::sol_data::FixedArray<alloy_sol_types::sol_data::Address, 5usize>,
+                alloy_sol_types::sol_data::FixedArray<
+                    alloy_sol_types::sol_data::Address,
+                    5usize,
+                >,
             );
             #[doc(hidden)]
-            type UnderlyingRustTuple<'a> = ([alloy_sol_types::private::Address; 5usize],);
+            type UnderlyingRustTuple<'a> = (
+                [alloy_sol_types::private::Address; 5usize],
+            );
             #[cfg(test)]
             #[allow(dead_code, unreachable_patterns)]
-            fn _type_assertion(_t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>) {
+            fn _type_assertion(
+                _t: alloy_sol_types::private::AssertTypeEq<UnderlyingRustTuple>,
+            ) {
                 match _t {
                     alloy_sol_types::private::AssertTypeEq::<
                         <UnderlyingSolTuple as alloy_sol_types::SolType>::RustType,
@@ -189,39 +191,41 @@ pub mod Solver7702Delegate {
             #[doc(hidden)]
             impl ::core::convert::From<UnderlyingRustTuple<'_>> for constructorCall {
                 fn from(tuple: UnderlyingRustTuple<'_>) -> Self {
-                    Self {
-                        approvedCallers: tuple.0,
-                    }
+                    Self { approvedCallers: tuple.0 }
                 }
             }
         }
         #[automatically_derived]
         impl alloy_sol_types::SolConstructor for constructorCall {
             type Parameters<'a> = (
-                alloy_sol_types::sol_data::FixedArray<alloy_sol_types::sol_data::Address, 5usize>,
+                alloy_sol_types::sol_data::FixedArray<
+                    alloy_sol_types::sol_data::Address,
+                    5usize,
+                >,
             );
-            type Token<'a> = <Self::Parameters<'a> as alloy_sol_types::SolType>::Token<'a>;
-
+            type Token<'a> = <Self::Parameters<
+                'a,
+            > as alloy_sol_types::SolType>::Token<'a>;
             #[inline]
             fn new<'a>(
                 tuple: <Self::Parameters<'a> as alloy_sol_types::SolType>::RustType,
             ) -> Self {
                 tuple.into()
             }
-
             #[inline]
             fn tokenize(&self) -> Self::Token<'_> {
-                (<alloy_sol_types::sol_data::FixedArray<
-                    alloy_sol_types::sol_data::Address,
-                    5usize,
-                > as alloy_sol_types::SolType>::tokenize(
-                    &self.approvedCallers,
-                ),)
+                (
+                    <alloy_sol_types::sol_data::FixedArray<
+                        alloy_sol_types::sol_data::Address,
+                        5usize,
+                    > as alloy_sol_types::SolType>::tokenize(&self.approvedCallers),
+                )
             }
         }
     };
     ///Container for all the [`Solver7702Delegate`](self) custom errors.
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     pub enum Solver7702DelegateErrors {
         #[allow(missing_docs)]
         Unauthorized(Unauthorized),
@@ -229,18 +233,19 @@ pub mod Solver7702Delegate {
     impl Solver7702DelegateErrors {
         /// All the selectors of this enum.
         ///
-        /// Note that the selectors might not be in the same order as the
-        /// variants. No guarantees are made about the order of the
-        /// selectors.
+        /// Note that the selectors might not be in the same order as the variants.
+        /// No guarantees are made about the order of the selectors.
         ///
         /// Prefer using `SolInterface` methods instead.
         pub const SELECTORS: &'static [[u8; 4usize]] = &[[142u8, 74u8, 35u8, 214u8]];
-        /// The signatures in the same order as `SELECTORS`.
-        pub const SIGNATURES: &'static [&'static str] =
-            &[<Unauthorized as alloy_sol_types::SolError>::SIGNATURE];
         /// The names of the variants in the same order as `SELECTORS`.
-        pub const VARIANT_NAMES: &'static [&'static str] = &[::core::stringify!(Unauthorized)];
-
+        pub const VARIANT_NAMES: &'static [&'static str] = &[
+            ::core::stringify!(Unauthorized),
+        ];
+        /// The signatures in the same order as `SELECTORS`.
+        pub const SIGNATURES: &'static [&'static str] = &[
+            <Unauthorized as alloy_sol_types::SolError>::SIGNATURE,
+        ];
         /// Returns the signature for the given selector, if known.
         #[inline]
         pub fn signature_by_selector(
@@ -253,59 +258,65 @@ pub mod Solver7702Delegate {
                 ::core::result::Result::Err(_) => ::core::option::Option::None,
             }
         }
-
         /// Returns the enum variant name for the given selector, if known.
         #[inline]
-        pub fn name_by_selector(selector: [u8; 4usize]) -> ::core::option::Option<&'static str> {
+        pub fn name_by_selector(
+            selector: [u8; 4usize],
+        ) -> ::core::option::Option<&'static str> {
             let sig = Self::signature_by_selector(selector)?;
             sig.split_once('(').map(|(name, _)| name)
         }
     }
     #[automatically_derived]
     impl alloy_sol_types::SolInterface for Solver7702DelegateErrors {
-        const COUNT: usize = 1usize;
-        const MIN_DATA_LENGTH: usize = 32usize;
         const NAME: &'static str = "Solver7702DelegateErrors";
-
+        const MIN_DATA_LENGTH: usize = 32usize;
+        const COUNT: usize = 1usize;
         #[inline]
         fn selector(&self) -> [u8; 4] {
             match self {
-                Self::Unauthorized(_) => <Unauthorized as alloy_sol_types::SolError>::SELECTOR,
+                Self::Unauthorized(_) => {
+                    <Unauthorized as alloy_sol_types::SolError>::SELECTOR
+                }
             }
         }
-
         #[inline]
         fn selector_at(i: usize) -> ::core::option::Option<[u8; 4]> {
             Self::SELECTORS.get(i).copied()
         }
-
         #[inline]
         fn valid_selector(selector: [u8; 4]) -> bool {
             Self::SELECTORS.binary_search(&selector).is_ok()
         }
-
         #[inline]
         #[allow(non_snake_case)]
-        fn abi_decode_raw(selector: [u8; 4], data: &[u8]) -> alloy_sol_types::Result<Self> {
+        fn abi_decode_raw(
+            selector: [u8; 4],
+            data: &[u8],
+        ) -> alloy_sol_types::Result<Self> {
             static DECODE_SHIMS: &[fn(
                 &[u8],
-            )
-                -> alloy_sol_types::Result<Solver7702DelegateErrors>] = &[{
-                fn Unauthorized(data: &[u8]) -> alloy_sol_types::Result<Solver7702DelegateErrors> {
-                    <Unauthorized as alloy_sol_types::SolError>::abi_decode_raw(data)
-                        .map(Solver7702DelegateErrors::Unauthorized)
-                }
-                Unauthorized
-            }];
+            ) -> alloy_sol_types::Result<Solver7702DelegateErrors>] = &[
+                {
+                    fn Unauthorized(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<Solver7702DelegateErrors> {
+                        <Unauthorized as alloy_sol_types::SolError>::abi_decode_raw(data)
+                            .map(Solver7702DelegateErrors::Unauthorized)
+                    }
+                    Unauthorized
+                },
+            ];
             let Ok(idx) = Self::SELECTORS.binary_search(&selector) else {
-                return Err(alloy_sol_types::Error::unknown_selector(
-                    <Self as alloy_sol_types::SolInterface>::NAME,
-                    selector,
-                ));
+                return Err(
+                    alloy_sol_types::Error::unknown_selector(
+                        <Self as alloy_sol_types::SolInterface>::NAME,
+                        selector,
+                    ),
+                );
             };
             DECODE_SHIMS[idx](data)
         }
-
         #[inline]
         #[allow(non_snake_case)]
         fn abi_decode_raw_validate(
@@ -314,24 +325,29 @@ pub mod Solver7702Delegate {
         ) -> alloy_sol_types::Result<Self> {
             static DECODE_VALIDATE_SHIMS: &[fn(
                 &[u8],
-            ) -> alloy_sol_types::Result<
-                Solver7702DelegateErrors,
-            >] = &[{
-                fn Unauthorized(data: &[u8]) -> alloy_sol_types::Result<Solver7702DelegateErrors> {
-                    <Unauthorized as alloy_sol_types::SolError>::abi_decode_raw_validate(data)
-                        .map(Solver7702DelegateErrors::Unauthorized)
-                }
-                Unauthorized
-            }];
+            ) -> alloy_sol_types::Result<Solver7702DelegateErrors>] = &[
+                {
+                    fn Unauthorized(
+                        data: &[u8],
+                    ) -> alloy_sol_types::Result<Solver7702DelegateErrors> {
+                        <Unauthorized as alloy_sol_types::SolError>::abi_decode_raw_validate(
+                                data,
+                            )
+                            .map(Solver7702DelegateErrors::Unauthorized)
+                    }
+                    Unauthorized
+                },
+            ];
             let Ok(idx) = Self::SELECTORS.binary_search(&selector) else {
-                return Err(alloy_sol_types::Error::unknown_selector(
-                    <Self as alloy_sol_types::SolInterface>::NAME,
-                    selector,
-                ));
+                return Err(
+                    alloy_sol_types::Error::unknown_selector(
+                        <Self as alloy_sol_types::SolInterface>::NAME,
+                        selector,
+                    ),
+                );
             };
             DECODE_VALIDATE_SHIMS[idx](data)
         }
-
         #[inline]
         fn abi_encoded_size(&self) -> usize {
             match self {
@@ -340,20 +356,22 @@ pub mod Solver7702Delegate {
                 }
             }
         }
-
         #[inline]
         fn abi_encode_raw(&self, out: &mut alloy_sol_types::private::Vec<u8>) {
             match self {
                 Self::Unauthorized(inner) => {
-                    <Unauthorized as alloy_sol_types::SolError>::abi_encode_raw(inner, out)
+                    <Unauthorized as alloy_sol_types::SolError>::abi_encode_raw(
+                        inner,
+                        out,
+                    )
                 }
             }
         }
     }
-    use alloy_contract;
+    use alloy_contract as alloy_contract;
     /**Creates a new wrapper around an on-chain [`Solver7702Delegate`](self) contract instance.
 
-    See the [wrapper's documentation](`Solver7702DelegateInstance`) for more details.*/
+See the [wrapper's documentation](`Solver7702DelegateInstance`) for more details.*/
     #[inline]
     pub const fn new<
         P: alloy_contract::private::Provider<N>,
@@ -366,22 +384,26 @@ pub mod Solver7702Delegate {
     }
     /**Deploys this contract using the given `provider` and constructor arguments, if any.
 
-    Returns a new instance of the contract, if the deployment was successful.
+Returns a new instance of the contract, if the deployment was successful.
 
-    For more fine-grained control over the deployment process, use [`deploy_builder`] instead.*/
+For more fine-grained control over the deployment process, use [`deploy_builder`] instead.*/
     #[inline]
-    pub fn deploy<P: alloy_contract::private::Provider<N>, N: alloy_contract::private::Network>(
+    pub fn deploy<
+        P: alloy_contract::private::Provider<N>,
+        N: alloy_contract::private::Network,
+    >(
         __provider: P,
         approvedCallers: [alloy_sol_types::private::Address; 5usize],
-    ) -> impl ::core::future::Future<Output = alloy_contract::Result<Solver7702DelegateInstance<P, N>>>
-    {
+    ) -> impl ::core::future::Future<
+        Output = alloy_contract::Result<Solver7702DelegateInstance<P, N>>,
+    > {
         Solver7702DelegateInstance::<P, N>::deploy(__provider, approvedCallers)
     }
     /**Creates a `RawCallBuilder` for deploying this contract using the given `provider`
-    and constructor arguments, if any.
+and constructor arguments, if any.
 
-    This is a simple wrapper around creating a `RawCallBuilder` with the data set to
-    the bytecode concatenated with the constructor's ABI-encoded arguments.*/
+This is a simple wrapper around creating a `RawCallBuilder` with the data set to
+the bytecode concatenated with the constructor's ABI-encoded arguments.*/
     #[inline]
     pub fn deploy_builder<
         P: alloy_contract::private::Provider<N>,
@@ -394,15 +416,15 @@ pub mod Solver7702Delegate {
     }
     /**A [`Solver7702Delegate`](self) instance.
 
-    Contains type-safe methods for interacting with an on-chain instance of the
-    [`Solver7702Delegate`](self) contract located at a given `address`, using a given
-    provider `P`.
+Contains type-safe methods for interacting with an on-chain instance of the
+[`Solver7702Delegate`](self) contract located at a given `address`, using a given
+provider `P`.
 
-    If the contract bytecode is available (see the [`sol!`](alloy_sol_types::sol!)
-    documentation on how to provide it), the `deploy` and `deploy_builder` methods can
-    be used to deploy a new instance of the contract.
+If the contract bytecode is available (see the [`sol!`](alloy_sol_types::sol!)
+documentation on how to provide it), the `deploy` and `deploy_builder` methods can
+be used to deploy a new instance of the contract.
 
-    See the [module-level documentation](self) for all the available methods.*/
+See the [module-level documentation](self) for all the available methods.*/
     #[derive(Clone)]
     pub struct Solver7702DelegateInstance<P, N = alloy_contract::private::Ethereum> {
         address: alloy_sol_types::private::Address,
@@ -413,32 +435,33 @@ pub mod Solver7702Delegate {
     impl<P, N> ::core::fmt::Debug for Solver7702DelegateInstance<P, N> {
         #[inline]
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-            f.debug_tuple("Solver7702DelegateInstance")
-                .field(&self.address)
-                .finish()
+            f.debug_tuple("Solver7702DelegateInstance").field(&self.address).finish()
         }
     }
     /// Instantiation and getters/setters.
-    impl<P: alloy_contract::private::Provider<N>, N: alloy_contract::private::Network>
-        Solver7702DelegateInstance<P, N>
-    {
+    impl<
+        P: alloy_contract::private::Provider<N>,
+        N: alloy_contract::private::Network,
+    > Solver7702DelegateInstance<P, N> {
         /**Creates a new wrapper around an on-chain [`Solver7702Delegate`](self) contract instance.
 
-        See the [wrapper's documentation](`Solver7702DelegateInstance`) for more details.*/
+See the [wrapper's documentation](`Solver7702DelegateInstance`) for more details.*/
         #[inline]
-        pub const fn new(address: alloy_sol_types::private::Address, __provider: P) -> Self {
+        pub const fn new(
+            address: alloy_sol_types::private::Address,
+            __provider: P,
+        ) -> Self {
             Self {
                 address,
                 provider: __provider,
                 _network: ::core::marker::PhantomData,
             }
         }
-
         /**Deploys this contract using the given `provider` and constructor arguments, if any.
 
-        Returns a new instance of the contract, if the deployment was successful.
+Returns a new instance of the contract, if the deployment was successful.
 
-        For more fine-grained control over the deployment process, use [`deploy_builder`] instead.*/
+For more fine-grained control over the deployment process, use [`deploy_builder`] instead.*/
         #[inline]
         pub async fn deploy(
             __provider: P,
@@ -448,12 +471,11 @@ pub mod Solver7702Delegate {
             let contract_address = call_builder.deploy().await?;
             Ok(Self::new(contract_address, call_builder.provider))
         }
-
         /**Creates a `RawCallBuilder` for deploying this contract using the given `provider`
-        and constructor arguments, if any.
+and constructor arguments, if any.
 
-        This is a simple wrapper around creating a `RawCallBuilder` with the data set to
-        the bytecode concatenated with the constructor's ABI-encoded arguments.*/
+This is a simple wrapper around creating a `RawCallBuilder` with the data set to
+the bytecode concatenated with the constructor's ABI-encoded arguments.*/
         #[inline]
         pub fn deploy_builder(
             __provider: P,
@@ -463,33 +485,29 @@ pub mod Solver7702Delegate {
                 __provider,
                 [
                     &BYTECODE[..],
-                    &alloy_sol_types::SolConstructor::abi_encode(&constructorCall {
-                        approvedCallers,
-                    })[..],
+                    &alloy_sol_types::SolConstructor::abi_encode(
+                        &constructorCall { approvedCallers },
+                    )[..],
                 ]
-                .concat()
-                .into(),
+                    .concat()
+                    .into(),
             )
         }
-
         /// Returns a reference to the address.
         #[inline]
         pub const fn address(&self) -> &alloy_sol_types::private::Address {
             &self.address
         }
-
         /// Sets the address.
         #[inline]
         pub fn set_address(&mut self, address: alloy_sol_types::private::Address) {
             self.address = address;
         }
-
         /// Sets the address and returns `self`.
         pub fn at(mut self, address: alloy_sol_types::private::Address) -> Self {
             self.set_address(address);
             self
         }
-
         /// Returns a reference to the provider.
         #[inline]
         pub const fn provider(&self) -> &P {
@@ -497,8 +515,7 @@ pub mod Solver7702Delegate {
         }
     }
     impl<P: ::core::clone::Clone, N> Solver7702DelegateInstance<&P, N> {
-        /// Clones the provider and returns a new instance with the cloned
-        /// provider.
+        /// Clones the provider and returns a new instance with the cloned provider.
         #[inline]
         pub fn with_cloned_provider(self) -> Solver7702DelegateInstance<P, N> {
             Solver7702DelegateInstance {
@@ -509,15 +526,14 @@ pub mod Solver7702Delegate {
         }
     }
     /// Function calls.
-    impl<P: alloy_contract::private::Provider<N>, N: alloy_contract::private::Network>
-        Solver7702DelegateInstance<P, N>
-    {
-        /// Creates a new call builder using this contract instance's provider
-        /// and address.
+    impl<
+        P: alloy_contract::private::Provider<N>,
+        N: alloy_contract::private::Network,
+    > Solver7702DelegateInstance<P, N> {
+        /// Creates a new call builder using this contract instance's provider and address.
         ///
-        /// Note that the call can be any function call, not just those defined
-        /// in this contract. Prefer using the other methods for
-        /// building type-safe contract calls.
+        /// Note that the call can be any function call, not just those defined in this
+        /// contract. Prefer using the other methods for building type-safe contract calls.
         pub fn call_builder<C: alloy_sol_types::SolCall>(
             &self,
             call: &C,
@@ -526,15 +542,14 @@ pub mod Solver7702Delegate {
         }
     }
     /// Event filters.
-    impl<P: alloy_contract::private::Provider<N>, N: alloy_contract::private::Network>
-        Solver7702DelegateInstance<P, N>
-    {
-        /// Creates a new event filter using this contract instance's provider
-        /// and address.
+    impl<
+        P: alloy_contract::private::Provider<N>,
+        N: alloy_contract::private::Network,
+    > Solver7702DelegateInstance<P, N> {
+        /// Creates a new event filter using this contract instance's provider and address.
         ///
-        /// Note that the type can be any event, not just those defined in this
-        /// contract. Prefer using the other methods for building
-        /// type-safe event filters.
+        /// Note that the type can be any event, not just those defined in this contract.
+        /// Prefer using the other methods for building type-safe event filters.
         pub fn event_filter<E: alloy_sol_types::SolEvent>(
             &self,
         ) -> alloy_contract::Event<&P, E, N> {
@@ -542,4 +557,6 @@ pub mod Solver7702Delegate {
         }
     }
 }
-pub type Instance = Solver7702Delegate::Solver7702DelegateInstance<::alloy_provider::DynProvider>;
+pub type Instance = Solver7702Delegate::Solver7702DelegateInstance<
+    ::alloy_provider::DynProvider,
+>;

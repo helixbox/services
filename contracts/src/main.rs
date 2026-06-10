@@ -479,6 +479,8 @@ fn build_module() -> Module {
             PLASMA => ("0x9008D19f58AAbD9eD0D60971565AA8510560ab41", 3439711),
             INK => ("0x9008D19f58AAbD9eD0D60971565AA8510560ab41", 34436849),
         ]))
+        .add_contract(Contract::new("ISettlementOkx"))
+        .add_contract(Contract::new("CowSettlementForwarder"))
         .add_contract(Contract::new("WETH9").with_networks(networks![
             MAINNET => "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             GNOSIS => "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
