@@ -4,7 +4,6 @@ use {
         domain::{
             competition::order::{SellTokenBalance, app_data::AppData},
             cow_amm,
-            eth,
             liquidity,
         },
         infra::{self, api::routes::solve::dto::SolveRequest, observe::metrics, tokens},
@@ -18,6 +17,7 @@ use {
     },
     balance_overrides::BalanceOverrideRequest,
     chrono::Utc,
+    eth_domain_types::{self as eth, Address, TokenAddress},
     futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered},
     itertools::Itertools,
     model::{
@@ -141,17 +141,17 @@ impl DataAggregator {
             eth.web3(),
             signature_validator::Contracts {
                 settlement: eth.contracts().settlement().clone(),
-                vault_relayer: eth.contracts().vault_relayer().0,
+                vault_relayer: *eth.contracts().vault_relayer(),
                 signatures: eth.contracts().signatures().clone(),
             },
-            eth.balance_overrider(),
+            eth.state_overrider(),
         );
 
         let cow_amm_helper_by_factory = eth
             .contracts()
             .cow_amm_helper_by_factory()
             .iter()
-            .map(|(factory, helper)| (factory.0, helper.0))
+            .map(|(factory, helper)| (Address::from(*factory), Address::from(*helper)))
             .collect();
         let cow_amm_cache =
             cow_amm::Cache::new(eth.web3().provider.clone(), cow_amm_helper_by_factory);
@@ -235,7 +235,11 @@ impl Utilities {
                 observe::metrics::metrics().on_auction_overhead_start("driver", "parse_dto");
             // deserialization takes tens of milliseconds so run it on a blocking task
             tokio::task::spawn_blocking(move || {
-                serde_json::from_slice(&solve_request).context("could not parse solve request")
+                serde_json::from_slice(&solve_request)
+                    .inspect_err(|err| {
+                        tracing::warn!(?err, "failed to parse /solve request body");
+                    })
+                    .context("could not parse solve request")
             })
             .await
             .context("failed to await blocking task")??
@@ -290,7 +294,7 @@ impl Utilities {
                 });
                 Query {
                     owner: trader.0,
-                    token: token.0.0,
+                    token: *token,
                     source: match source {
                         SellTokenBalance::Erc20 => SellTokenSource::Erc20,
                         SellTokenBalance::Internal => SellTokenSource::Internal,
@@ -436,7 +440,7 @@ impl Utilities {
                         .iter()
                         .map(|t| {
                             auction.tokens
-                                .get(&eth::TokenAddress(eth::ContractAddress(*t)))
+                                .get(&TokenAddress::from(*t))
                                 .and_then(|token| token.price)
                                 .map(|price| price.0.0)
                         })

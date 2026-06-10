@@ -1,21 +1,19 @@
 use {
-    crate::{
-        boundary,
-        domain::{eth, eth::U256},
-    },
+    crate::{boundary, domain::blockchain::TxStatus},
     account_balances::{BalanceSimulator, SimulationError},
     alloy::{
         eips::eip1559::Eip1559Estimation,
         network::TransactionBuilder,
+        primitives::Bytes,
         providers::Provider,
         rpc::types::{TransactionReceipt, TransactionRequest},
         transports::TransportErrorKind,
     },
-    anyhow::anyhow,
-    balance_overrides::{BalanceOverrides, BalanceOverriding},
+    balance_overrides::{StateOverrides, StateOverriding},
     chain::Chain,
+    eth_domain_types as eth,
     ethrpc::{Web3, alloy::ProviderLabelingExt, block_stream::CurrentBlockWatcher},
-    gas_price_estimation::Eip1559EstimationExt,
+    gas_price_estimation::{Eip1559EstimationExt, GasPriceEstimating},
     shared::web3,
     std::{fmt, sync::Arc},
     thiserror::Error,
@@ -29,12 +27,14 @@ pub mod token;
 pub use self::{contracts::Contracts, gas::GasPriceEstimator};
 
 /// An Ethereum RPC connection.
+#[derive(Clone)]
 pub struct Rpc {
     web3: Web3,
     chain: Chain,
     args: RpcArgs,
 }
 
+#[derive(Clone)]
 pub struct RpcArgs {
     pub url: Url,
     pub max_batch_size: usize,
@@ -91,8 +91,8 @@ struct Inner {
     gas: Arc<GasPriceEstimator>,
     current_block: CurrentBlockWatcher,
     balance_simulator: BalanceSimulator,
-    balance_overrider: Arc<dyn BalanceOverriding>,
-    tx_gas_limit: U256,
+    state_overrider: Arc<dyn StateOverriding>,
+    tx_gas_limit: eth::Gas,
 }
 
 impl Ethereum {
@@ -106,11 +106,10 @@ impl Ethereum {
         rpc: Rpc,
         addresses: contracts::Addresses,
         gas: Arc<GasPriceEstimator>,
-        tx_gas_limit: U256,
         current_block_args: &shared::current_block::Arguments,
+        tx_gas_limit: eth::Gas,
     ) -> Self {
         let Rpc { web3, chain, args } = rpc;
-
         let current_block_stream = current_block_args
             .stream(args.url.clone(), web3.provider.clone())
             .await
@@ -119,13 +118,13 @@ impl Ethereum {
         let contracts = Contracts::new(&web3, chain, addresses)
             .await
             .expect("could not initialize important smart contracts");
-        let balance_overrider = Arc::new(BalanceOverrides::new(web3.clone()));
+        let state_overrider = Arc::new(StateOverrides::new(web3.clone()));
         let balance_simulator = BalanceSimulator::new(
             contracts.settlement().clone(),
             contracts.balance_helper().clone(),
-            contracts.vault_relayer().0,
+            *contracts.vault_relayer(),
             Some(*contracts.vault().address()),
-            balance_overrider.clone(),
+            state_overrider.clone(),
         );
 
         Self {
@@ -135,7 +134,7 @@ impl Ethereum {
                 contracts,
                 gas,
                 balance_simulator,
-                balance_overrider,
+                state_overrider,
                 tx_gas_limit,
             }),
             web3,
@@ -150,8 +149,8 @@ impl Ethereum {
         &self.inner.balance_simulator
     }
 
-    pub fn balance_overrider(&self) -> Arc<dyn BalanceOverriding> {
-        Arc::clone(&self.inner.balance_overrider)
+    pub fn state_overrider(&self) -> Arc<dyn StateOverriding> {
+        Arc::clone(&self.inner.state_overrider)
     }
 
     /// Clones self and returns an instance that captures metrics extended with
@@ -180,30 +179,40 @@ impl Ethereum {
         &self.inner.current_block
     }
 
-    /// Create access list used by a transaction.
-    #[instrument(skip_all)]
-    pub async fn create_access_list<T>(&self, tx: T) -> Result<eth::AccessList, Error>
-    where
-        T: Into<TransactionRequest>,
-    {
-        let tx = tx.into();
+    /// The gas price is determined based on the deadline by which the
+    /// transaction must be included on-chain. A shorter deadline requires a
+    /// higher gas price to increase the likelihood of timely inclusion.
+    pub async fn gas_price(&self) -> Result<Eip1559Estimation, Error> {
+        self.inner.gas.estimate().await
+    }
 
-        let gas_limit = self.inner.tx_gas_limit.try_into().map_err(|err| {
-            Error::GasPrice(anyhow!("failed to convert gas_limit to u64: {err:?}"))
-        })?;
-        let tx = tx.with_gas_limit(gas_limit);
-        let tx = match self.simulation_gas_price().await {
-            Some(gas_price) => tx.with_gas_price(gas_price),
-            _ => tx,
-        };
+    pub fn gas_estimator(&self) -> Arc<dyn GasPriceEstimating> {
+        Arc::clone(&self.inner.gas) as _
+    }
 
-        let access_list = self.web3.provider.create_access_list(&tx).pending().await?;
+    pub fn block_gas_limit(&self) -> eth::Gas {
+        self.inner.current_block.borrow().gas_limit.into()
+    }
 
-        Ok(access_list
-            .ensure_ok()
-            .map_err(Error::AccessList)?
-            .access_list
-            .into())
+    /// Per-transaction gas limit configured for this driver. Operators set
+    /// this per chain (e.g. EIP-7825's 16,777,215 cap on Fusaka chains).
+    pub fn tx_gas_limit(&self) -> eth::Gas {
+        self.inner.tx_gas_limit
+    }
+
+    /// Returns the current [`eth::Ether`] balance of the specified account.
+    pub async fn balance(&self, address: eth::Address) -> Result<eth::Ether, Error> {
+        self.web3
+            .provider
+            .get_balance(address)
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    /// Returns a [`token::Erc20`] for the specified address.
+    pub fn erc20(&self, address: eth::TokenAddress) -> token::Erc20 {
+        token::Erc20::new(self, address)
     }
 
     /// Estimate gas used by a transaction.
@@ -232,34 +241,8 @@ impl Ethereum {
         Ok(estimated_gas)
     }
 
-    /// The gas price is determined based on the deadline by which the
-    /// transaction must be included on-chain. A shorter deadline requires a
-    /// higher gas price to increase the likelihood of timely inclusion.
-    pub async fn gas_price(&self) -> Result<Eip1559Estimation, Error> {
-        self.inner.gas.estimate().await
-    }
-
-    pub fn block_gas_limit(&self) -> eth::Gas {
-        self.inner.current_block.borrow().gas_limit.into()
-    }
-
-    /// Returns the current [`eth::Ether`] balance of the specified account.
-    pub async fn balance(&self, address: eth::Address) -> Result<eth::Ether, Error> {
-        self.web3
-            .provider
-            .get_balance(address)
-            .await
-            .map(Into::into)
-            .map_err(Into::into)
-    }
-
-    /// Returns a [`token::Erc20`] for the specified address.
-    pub fn erc20(&self, address: eth::TokenAddress) -> token::Erc20 {
-        token::Erc20::new(self, address)
-    }
-
     /// Returns the transaction's on-chain inclusion status.
-    pub async fn transaction_status(&self, tx_hash: &eth::TxId) -> Result<eth::TxStatus, Error> {
+    pub async fn transaction_status(&self, tx_hash: &eth::TxId) -> Result<TxStatus, Error> {
         self.web3
             .provider
             .get_transaction_receipt(tx_hash.0)
@@ -272,15 +255,15 @@ impl Ethereum {
                     },
                 ) = result
                 else {
-                    return eth::TxStatus::Pending;
+                    return TxStatus::Pending;
                 };
 
                 if receipt.status() {
-                    eth::TxStatus::Executed {
+                    TxStatus::Executed {
                         block_number: eth::BlockNo(block_number),
                     }
                 } else {
-                    eth::TxStatus::Reverted {
+                    TxStatus::Reverted {
                         block_number: eth::BlockNo(block_number),
                     }
                 }
@@ -343,6 +326,14 @@ impl Error {
                 tracing::trace!(is_revert, ?err, "classified error");
                 is_revert
             }
+        }
+    }
+
+    pub fn revert_bytes(&self) -> Option<Bytes> {
+        match self {
+            Error::ContractRpc(err) => err.as_revert_data(),
+            Error::Rpc(err) => err.as_error_resp().and_then(|err| err.as_revert_data()),
+            _ => None,
         }
     }
 }

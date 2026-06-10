@@ -12,7 +12,6 @@ use {
         infra::{
             self,
             Ethereum,
-            Simulator,
             config::file::OrderPriorityStrategy,
             liquidity,
             notify,
@@ -23,11 +22,13 @@ use {
     error::Error,
     futures::Future,
     observe::tracing::distributed::axum::{make_span, record_trace_id},
+    simulator::Simulator,
     std::{net::SocketAddr, sync::Arc},
     tokio::sync::oneshot,
 };
 
 mod error;
+mod extract;
 pub mod routes;
 
 pub struct Api {
@@ -195,7 +196,7 @@ impl State {
         &self.0.solver
     }
 
-    fn competition(&self) -> &domain::Competition {
+    fn competition(&self) -> &Arc<domain::Competition> {
         &self.0.competition
     }
 

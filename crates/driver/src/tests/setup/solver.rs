@@ -7,7 +7,6 @@ use {
     crate::{
         domain::{
             competition::order,
-            eth,
             time::{self},
         },
         infra::{self, Ethereum, blockchain::contracts::Addresses, config::file::FeeHandler},
@@ -15,7 +14,8 @@ use {
     },
     alloy::{primitives::Address, signers::local::PrivateKeySigner},
     const_hex::ToHexExt,
-    contracts::alloy::ERC20,
+    contracts::ERC20,
+    eth_domain_types as eth,
     gas_price_estimation::Eip1559EstimationExt,
     itertools::Itertools,
     number::testing::ApproxEq,
@@ -48,6 +48,7 @@ pub struct Config<'a> {
     pub private_key: PrivateKeySigner,
     pub expected_surplus_capturing_jit_order_owners: Vec<Address>,
     pub allow_multiple_solve_requests: bool,
+    pub haircut_bps: u32,
 }
 
 impl Solver {
@@ -92,6 +93,17 @@ impl Solver {
                             _ => {}
                         }
                     }
+                    // Make-room for the haircut: the driver subtracts a haircut
+                    // post-hoc from buy_amount() (sell orders) / adds it to
+                    // sell_amount() (buy orders). Tightening the auction limits
+                    // here ensures solvers bid with enough headroom.
+                    if config.haircut_bps > 0 {
+                        let factor = f64::from(config.haircut_bps) / 10_000.0;
+                        current_sell_amount = eth::TokenAmount(current_sell_amount)
+                            .apply_factor(1.0 / (1.0 + factor))
+                            .unwrap()
+                            .0;
+                    }
                     current_sell_amount.to_string()
                 }
                 _ => quote.sell_amount().to_string(),
@@ -117,6 +129,15 @@ impl Solver {
                             }
                             _ => {}
                         }
+                    }
+                    // Make-room for the haircut (see comment in the buy-side
+                    // branch above).
+                    if config.haircut_bps > 0 {
+                        let factor = f64::from(config.haircut_bps) / 10_000.0;
+                        current_buy_amount = eth::TokenAmount(current_buy_amount)
+                            .apply_factor(1.0 / (1.0 - factor))
+                            .unwrap()
+                            .0;
                     }
                     current_buy_amount.to_string()
                 }
@@ -388,6 +409,10 @@ impl Solver {
                 "interactions": interactions_json,
                 "preInteractions": pre_interactions_json,
             });
+            if let Some((max_fee, max_priority_fee)) = &solution.gas_fee_override {
+                solution_json["maxFeePerGas"] = json!(max_fee.to_string());
+                solution_json["maxPriorityFeePerGas"] = json!(max_priority_fee.to_string());
+            }
             if !solution.flashloans.is_empty() {
                 solution_json["flashloans"] = serde_json::Value::Object(
                     solution
@@ -471,11 +496,11 @@ impl Solver {
                 flashloan_router: Some((*config.blockchain.flashloan_router.address()).into()),
             },
             gas,
-            eth::U256::from(45_000_000),
             &shared::current_block::Arguments {
                 block_stream_poll_interval: None,
                 node_ws_url: Some(config.blockchain.web3_ws_url.parse().unwrap()),
             },
+            eth_domain_types::Gas(eth_domain_types::U256::from(45_000_000u64)),
         )
         .await;
 

@@ -5,7 +5,6 @@ use {
     crate::{
         domain::{
             competition::order::{self, app_data::AppData},
-            eth,
             time,
         },
         infra::{
@@ -43,6 +42,7 @@ use {
     },
     axum::http::StatusCode,
     bigdecimal::{BigDecimal, FromPrimitive},
+    eth_domain_types as eth,
     ethrpc::Web3,
     futures::future::join_all,
     model::order::{BuyTokenDestination, SellTokenSource},
@@ -361,6 +361,10 @@ pub struct Solver {
     merge_solutions: bool,
     /// Haircut in basis points (0-10000) for conservative bidding.
     haircut_bps: u32,
+    /// Maximum number of solutions the driver proposes per auction.
+    max_solutions_to_propose: usize,
+    /// Additional submission accounts for EIP-7702 parallel settlement.
+    submission_accounts: Vec<PrivateKeySigner>,
 }
 
 #[derive(Debug, Clone)]
@@ -388,6 +392,8 @@ pub fn test_solver() -> Solver {
         fee_handler: FeeHandler::default(),
         merge_solutions: false,
         haircut_bps: 0,
+        max_solutions_to_propose: 1,
+        submission_accounts: vec![],
     }
 }
 
@@ -432,6 +438,16 @@ impl Solver {
             haircut_bps,
             ..self
         }
+    }
+
+    pub fn max_solutions_to_propose(mut self, n: usize) -> Self {
+        self.max_solutions_to_propose = n;
+        self
+    }
+
+    pub fn submission_account(mut self, signer: PrivateKeySigner) -> Self {
+        self.submission_accounts.push(signer);
+        self
     }
 }
 
@@ -500,6 +516,7 @@ pub fn setup() -> Setup {
         allow_multiple_solve_requests: false,
         auction_id: 1,
         settle_submission_deadline: 3,
+        flashloans_enabled: true,
         ..Default::default()
     }
 }
@@ -541,6 +558,8 @@ pub struct Setup {
     /// The maximum number of blocks to wait for a settlement to appear on
     /// chain.
     settle_submission_deadline: u64,
+    /// Should flashloan-hint orders be accepted by the driver? True by default.
+    flashloans_enabled: bool,
 }
 
 /// The validity of a solution.
@@ -562,6 +581,7 @@ pub struct Solution {
     pub calldata: Calldata,
     pub orders: Vec<&'static str>,
     pub flashloans: HashMap<order::Uid, Flashloan>,
+    pub gas_fee_override: Option<(u128, u128)>,
 }
 
 impl Solution {
@@ -607,6 +627,14 @@ impl Solution {
         self.flashloans.insert(order, flashloan);
         self
     }
+
+    /// Set custom gas fee overrides for the solution.
+    pub fn gas_fee_override(self, max_fee_per_gas: u128, max_priority_fee_per_gas: u128) -> Self {
+        Self {
+            gas_fee_override: Some((max_fee_per_gas, max_priority_fee_per_gas)),
+            ..self
+        }
+    }
 }
 
 impl Default for Solution {
@@ -617,6 +645,7 @@ impl Default for Solution {
             },
             orders: Default::default(),
             flashloans: Default::default(),
+            gas_fee_override: None,
         }
     }
 }
@@ -662,7 +691,7 @@ pub fn ab_solution() -> Solution {
             additional_bytes: 0,
         },
         orders: vec!["A-B order"],
-        flashloans: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -694,7 +723,7 @@ pub fn ad_solution() -> Solution {
             additional_bytes: 0,
         },
         orders: vec!["A-D order"],
-        flashloans: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -726,7 +755,7 @@ pub fn cd_solution() -> Solution {
             additional_bytes: 0,
         },
         orders: vec!["C-D order"],
-        flashloans: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -757,7 +786,7 @@ pub fn eth_solution() -> Solution {
             additional_bytes: 0,
         },
         orders: vec!["ETH order"],
-        flashloans: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -880,6 +909,12 @@ impl Setup {
         self
     }
 
+    /// Toggle acceptance of flashloan-hint orders at the driver level.
+    pub fn flashloans_enabled(mut self, flashloans_enabled: bool) -> Self {
+        self.flashloans_enabled = flashloans_enabled;
+        self
+    }
+
     /// Create the test: set up onchain contracts and pools, start a mock HTTP
     /// server for the solver and start the HTTP server for the driver.
     pub async fn done(self) -> Test {
@@ -952,6 +987,7 @@ impl Setup {
             solutions.push(blockchain::Solution {
                 trades: [fulfillment_trades, jit_trades].concat(),
                 flashloans: solution.flashloans.clone(),
+                gas_fee_override: solution.gas_fee_override,
             });
         }
         let orderbook = Orderbook::start(&orders).await;
@@ -972,6 +1008,7 @@ impl Setup {
                 expected_surplus_capturing_jit_order_owners: surplus_capturing_jit_order_owners
                     .clone(),
                 allow_multiple_solve_requests: self.allow_multiple_solve_requests,
+                haircut_bps: solver.haircut_bps,
             })
             .await;
 
@@ -986,6 +1023,7 @@ impl Setup {
                 mempools: self.mempools,
                 order_priority_strategies: self.order_priority_strategies,
                 orderbook,
+                flashloans_enabled: self.flashloans_enabled,
             },
             &solvers_with_address,
             &blockchain,
@@ -1244,7 +1282,7 @@ impl<'a> Solve<'a> {
 }
 
 impl SolveOk<'_> {
-    fn solutions(&self) -> Vec<serde_json::Value> {
+    pub fn solutions(&self) -> Vec<serde_json::Value> {
         #[derive(serde::Deserialize)]
         struct Body {
             solutions: Vec<serde_json::Value>,
@@ -1264,9 +1302,8 @@ impl SolveOk<'_> {
             .to_owned()
     }
 
-    /// Extracts the first solution from the response. This is expected to be
-    /// always valid if there is a valid solution, as we expect from driver to
-    /// not send multiple solutions (yet).
+    /// Extracts the only solution from the response. Panics if the response
+    /// contains more than one solution (i.e. `max-solutions-to-propose > 1`).
     pub fn solution(&self) -> serde_json::Value {
         let solutions = self.solutions();
         assert_eq!(solutions.len(), 1);

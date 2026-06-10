@@ -51,6 +51,43 @@ where
     Url::from_str(&raw_url).map_err(invalid_value_unable_to_parse_url)
 }
 
+/// Deserializes an optional String from *either* an environment variable —
+/// with the format `%<ENV_VAR_NAME>` — or directly from the field value.
+pub(crate) fn deserialize_string_from_env<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    match value.strip_prefix(ENV_VAR_PREFIX) {
+        Some(env_var_name) => Ok(std::env::var(env_var_name)
+            .inspect_err(|err| {
+                tracing::error!(%err, %env_var_name, "failed to load env var");
+            })
+            .map_err(|_| invalid_value_env_var_missing(env_var_name))?),
+        None => Ok(value),
+    }
+}
+
+/// Deserializes an optional String from *either* an environment variable —
+/// with the format `%<ENV_VAR_NAME>` — or directly from the field value. A
+/// missing env var is treated as `None` rather than an error, matching
+/// [`deserialize_optional_url_from_env`].
+pub(crate) fn deserialize_optional_string_from_env<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(value) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    match value.strip_prefix(ENV_VAR_PREFIX) {
+        // In the case of optional variables, we assume a missing env var as empty
+        Some(env_var_name) => Ok(std::env::var(env_var_name).ok()),
+        None => Ok(Some(value)),
+    }
+}
+
 /// Deserializes an optional URL from *either* an environment variable — with
 /// the format `%<ENV_VAR_NAME>` — or interpreting a String as a URL.
 pub(crate) fn deserialize_optional_url_from_env<'de, D>(

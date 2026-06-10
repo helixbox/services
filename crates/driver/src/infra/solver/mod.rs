@@ -2,13 +2,13 @@ use {
     super::notify,
     crate::{
         domain::{
+            self,
             competition::{
                 auction::{self, Auction},
                 order,
                 risk_detector,
                 solution::{self, Solution},
             },
-            eth,
             liquidity,
             time::Remaining,
         },
@@ -28,6 +28,7 @@ use {
     },
     anyhow::Result,
     derive_more::{From, Into},
+    eth_domain_types as eth,
     num::BigRational,
     observe::tracing::distributed::headers::tracing_headers,
     reqwest::header::HeaderName,
@@ -213,15 +214,50 @@ pub struct Config {
     pub haircut_bps: u32,
     /// Additional EOAs for parallel settlement submission via EIP-7702.
     /// When non-empty, these accounts submit txs to the solver EOA (which
-    /// delegates to a forwarder contract), enabling concurrent submissions.
+    /// delegates to Solver7702Delegate), enabling concurrent submissions.
     pub submission_accounts: Vec<Account>,
-    /// Address of the deployed CowSettlementForwarder contract for EIP-7702
-    /// delegation. Required when `submission_accounts` is non-empty.
-    pub forwarder_contract: Option<eth::Address>,
+    /// Maximum number of solutions the driver proposes to the autopilot per
+    /// auction. When 1 (the default), only the best-scoring solution is sent.
+    pub max_solutions_to_propose: std::num::NonZeroUsize,
+    /// How many solutions the driver is allowed to post-process concurrently.
+    pub post_processing_concurrency_limit: std::num::NonZeroUsize,
+}
+
+impl Config {
+    fn validate(&self) -> Result<()> {
+        if self.submission_accounts.is_empty() {
+            anyhow::ensure!(
+                self.max_solutions_to_propose.get() == 1,
+                "solver '{}': max-solutions-to-propose > 1 requires non-empty submission-accounts \
+                 (EIP-7702 parallel submission must be enabled)",
+                self.name,
+            );
+            return Ok(());
+        }
+
+        anyhow::ensure!(
+            self.submission_accounts
+                .iter()
+                .all(|account| !matches!(account, Account::Address(_))),
+            "solver '{}': EIP-7702 submission accounts must be signers; address-only accounts \
+             cannot sign delegated settlement transactions",
+            self.name,
+        );
+        anyhow::ensure!(
+            !matches!(self.account, Account::Address(_)),
+            "solver '{}': main account must be a signer to set up EIP-7702 delegation when \
+             submission accounts are configured",
+            self.name,
+        );
+
+        Ok(())
+    }
 }
 
 impl Solver {
     pub async fn try_new(config: Config, eth: Ethereum) -> Result<Self> {
+        config.validate()?;
+
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::CONTENT_TYPE,
@@ -319,9 +355,8 @@ impl Solver {
         &self.config.submission_accounts
     }
 
-    /// Address of the CowSettlementForwarder contract for EIP-7702 delegation.
-    pub fn forwarder_contract(&self) -> Option<eth::Address> {
-        self.config.forwarder_contract
+    pub fn max_solutions_to_propose(&self) -> usize {
+        self.config.max_solutions_to_propose.get()
     }
 
     /// Make a POST request instructing the solver to solve an auction.
@@ -348,6 +383,7 @@ impl Solver {
             &flashloan_hints,
             &wrappers,
             auction.deadline(self.timeouts()).solvers(),
+            self.config.haircut_bps,
         );
 
         let body = {
@@ -403,7 +439,7 @@ impl Solver {
             auction.id().is_none(),
         );
         let res = res?;
-        let res: solvers_dto::solution::Solutions =
+        let res: solvers_dto::solution::SolverResponse =
             serde_json::from_str(&res).inspect_err(|err| {
                 tracing::warn!(res, ?err, "failed to parse solver response");
                 self.notify(
@@ -412,19 +448,31 @@ impl Solver {
                     notify::Kind::DeserializationError(format!("Request format invalid: {err}")),
                 );
             })?;
-        let solutions = dto::Solutions::from(res).into_domain(
-            auction,
-            liquidity,
-            weth,
-            self.clone(),
-            &flashloan_hints,
-        )?;
 
-        super::observe::solutions(&solutions, auction.surplus_capturing_jit_order_owners());
-        Ok(solutions)
+        match res {
+            solvers_dto::solution::SolverResponse::Error { error } => {
+                tracing::debug!(?error, "solver returned custom error");
+                return Err(Error::CustomError(error));
+            }
+            solvers_dto::solution::SolverResponse::Solutions { solutions } => {
+                let solutions = dto::Solutions::from(solutions).into_domain(
+                    auction,
+                    liquidity,
+                    weth,
+                    self.clone(),
+                    &flashloan_hints,
+                )?;
+
+                super::observe::solutions(&solutions, auction.surplus_capturing_jit_order_owners());
+                Ok(solutions)
+            }
+        }
     }
 
-    fn assemble_flashloan_hints(&self, auction: &Auction) -> HashMap<order::Uid, eth::Flashloan> {
+    fn assemble_flashloan_hints(
+        &self,
+        auction: &Auction,
+    ) -> HashMap<order::Uid, domain::flashloan::Flashloan> {
         if !self.config.flashloans_enabled {
             return Default::default();
         }
@@ -434,7 +482,7 @@ impl Solver {
             .iter()
             .flat_map(|order| {
                 let hint = order.app_data.flashloan()?;
-                let flashloan = eth::Flashloan {
+                let flashloan = domain::flashloan::Flashloan {
                     liquidity_provider: hint.liquidity_provider.into(),
                     protocol_adapter: hint.protocol_adapter.into(),
                     receiver: hint.receiver,
@@ -499,6 +547,103 @@ impl Solver {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        alloy::primitives::{address, b256},
+        std::num::NonZeroUsize,
+    };
+
+    const SOLVER: Address = address!("0000000000000000000000000000000000000001");
+    const SUBMITTER: Address = address!("0000000000000000000000000000000000000002");
+
+    fn signer() -> Account {
+        Account::PrivateKey(
+            PrivateKeySigner::from_bytes(&b256!(
+                "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            ))
+            .unwrap(),
+        )
+    }
+
+    fn config() -> Config {
+        Config {
+            endpoint: "http://localhost/solve".parse().unwrap(),
+            name: Name("solver".to_string()),
+            slippage: Slippage {
+                relative: BigRational::from_integer(0.into()),
+                absolute: None,
+            },
+            liquidity: Liquidity::Fetch,
+            account: Account::Address(SOLVER),
+            timeouts: Timeouts {
+                http_delay: chrono::Duration::seconds(1),
+                solving_share_of_deadline: 1.0.try_into().unwrap(),
+            },
+            request_headers: Default::default(),
+            fee_handler: FeeHandler::Driver,
+            quote_using_limit_orders: false,
+            merge_solutions: SolutionMerging::Forbidden,
+            s3: None,
+            solver_native_token: ManageNativeToken {
+                wrap_address: false,
+                insert_unwraps: false,
+            },
+            quote_tx_origin: None,
+            response_size_limit_max_bytes: 1024,
+            bad_order_detection: BadOrderDetection {
+                tokens_supported: Default::default(),
+                enable_simulation_strategy: false,
+                enable_metrics_strategy: false,
+                metrics_strategy_failure_ratio: 0.9,
+                metrics_strategy_required_measurements: 20,
+                metrics_strategy_log_only: true,
+                metrics_strategy_order_freeze_time: Duration::ZERO,
+                metrics_strategy_cache_gc_interval: Duration::ZERO,
+                metrics_strategy_cache_max_age: Duration::ZERO,
+            },
+            settle_queue_size: 0,
+            flashloans_enabled: false,
+            fetch_liquidity_at_block: infra::liquidity::AtBlock::Latest,
+            haircut_bps: 0,
+            submission_accounts: vec![],
+            max_solutions_to_propose: NonZeroUsize::new(1).unwrap(),
+            post_processing_concurrency_limit: NonZeroUsize::MAX,
+        }
+    }
+
+    #[test]
+    fn rejects_multiple_proposed_solutions_without_submission_accounts() {
+        let mut config = config();
+        config.max_solutions_to_propose = NonZeroUsize::new(2).unwrap();
+
+        let err = config.validate().unwrap_err();
+
+        assert!(err.to_string().contains("requires non-empty"));
+    }
+
+    #[test]
+    fn rejects_read_only_submission_accounts() {
+        let mut config = config();
+        config.submission_accounts = vec![Account::Address(SUBMITTER)];
+
+        let err = config.validate().unwrap_err();
+
+        assert!(err.to_string().contains("must be signers"));
+    }
+
+    #[test]
+    fn rejects_read_only_main_account_with_submission_accounts() {
+        let mut config = config();
+        config.submission_accounts = vec![signer()];
+
+        let err = config.validate().unwrap_err();
+
+        assert!(err.to_string().contains("main account must be a signer"));
+    }
+}
+
 /// Controls whether or not the driver is allowed to merge multiple solutions
 /// of the same solver to produce an overall better solution.
 #[derive(Debug, Clone, Copy)]
@@ -517,6 +662,8 @@ pub enum Error {
     Deserialize(#[from] serde_json::Error),
     #[error("solver dto error: {0}")]
     Dto(#[from] dto::Error),
+    #[error("solver returned custom error: {0:?}")]
+    CustomError(solvers_dto::solution::SolverError),
 }
 
 impl Error {
@@ -524,6 +671,13 @@ impl Error {
         match self {
             Self::Http(util::http::Error::Response(err)) => err.is_timeout(),
             _ => false,
+        }
+    }
+
+    pub fn custom_error(&self) -> Option<&solvers_dto::solution::SolverError> {
+        match self {
+            Self::CustomError(err) => Some(err),
+            _ => None,
         }
     }
 }

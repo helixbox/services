@@ -12,19 +12,17 @@ use {
         order::{self, Side},
         trade::CustomClearingPrices,
     },
-    crate::domain::{
-        competition::{
-            PriceLimits,
-            auction,
-            order::FeePolicy,
-            solution::{
-                error,
-                fee::{self, adjust_quote_to_order_limits},
-            },
+    crate::domain::competition::{
+        PriceLimits,
+        auction,
+        order::FeePolicy,
+        solution::{
+            error,
+            fee::{self, adjust_quote_to_order_limits},
         },
-        eth,
     },
     alloy::primitives::ruint::UintTryFrom,
+    eth_domain_types as eth,
     number::u256_ext::U256Ext,
 };
 
@@ -408,7 +406,7 @@ mod tests {
 
     /// Tests that the new score computation limits the score of certain
     /// buy orders to a reasonable amount.
-    /// Data is based on this
+    /// NOTE(historical): Data is based on this
     /// [auction](https://api.cow.fi/base/api/v1/solver_competition/by_tx_hash/0xe3ef02493255f17c0abd2ff88c34682d35f0de4f4875a4653104e3453473d8d9).
     #[test]
     fn score_problematic_buy_order() {

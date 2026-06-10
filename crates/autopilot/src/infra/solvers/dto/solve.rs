@@ -1,7 +1,7 @@
 use {
     crate::{
         boundary,
-        domain::{self, eth},
+        domain,
         infra::{
             persistence::dto::{self, order::Order},
             solvers::{InjectIntoHttpRequest, byte_stream::ByteStream},
@@ -11,6 +11,7 @@ use {
     brotli::enc::writer::CompressorWriter,
     bytes::Bytes,
     chrono::{DateTime, Utc},
+    eth_domain_types as eth,
     itertools::Itertools,
     number::serialization::HexOrDecimalU256,
     reqwest::{RequestBuilder, header::HeaderValue},
@@ -33,13 +34,14 @@ pub struct Request {
     auction_id: i64,
     body: bytes::Bytes,
     content_encoding: Option<HeaderValue>,
+    deadline: chrono::DateTime<chrono::Utc>,
 }
 
 impl Request {
     pub async fn new(
         auction: &domain::Auction,
         trusted_tokens: &HashSet<Address>,
-        time_limit: Duration,
+        deadline: chrono::DateTime<chrono::Utc>,
         compress: bool,
     ) -> Self {
         let _timer =
@@ -56,9 +58,9 @@ impl Request {
                 .prices
                 .iter()
                 .map(|(address, price)| Token {
-                    address: address.to_owned().0,
+                    address: *address.to_owned(),
                     price: Some(price.get().0),
-                    trusted: trusted_tokens.contains(&(address.0)),
+                    trusted: trusted_tokens.contains(&Address::from(*address)),
                 })
                 .chain(trusted_tokens.iter().map(|&address| Token {
                     address,
@@ -67,7 +69,7 @@ impl Request {
                 }))
                 .unique_by(|token| token.address)
                 .collect(),
-            deadline: Utc::now() + chrono::Duration::from_std(time_limit).unwrap(),
+            deadline,
             surplus_capturing_jit_order_owners: auction.surplus_capturing_jit_order_owners.to_vec(),
         };
         let auction_id = auction.id;
@@ -112,11 +114,19 @@ impl Request {
             body,
             auction_id,
             content_encoding,
+            deadline,
         }
     }
 
     pub fn body_size(&self) -> usize {
         self.body.len()
+    }
+
+    pub fn time_until_deadline(&self) -> Duration {
+        self.deadline
+            .signed_duration_since(Utc::now())
+            .to_std()
+            .unwrap_or(Duration::ZERO)
     }
 }
 
@@ -307,6 +317,7 @@ mod tests {
             auction_id: 1,
             body: Bytes::from(json),
             content_encoding: None,
+            deadline: Utc::now(),
         }
     }
 
@@ -321,6 +332,7 @@ mod tests {
             auction_id: 1,
             body: Bytes::from(compressed),
             content_encoding: Some(HeaderValue::from_static("br")),
+            deadline: Utc::now(),
         }
     }
 

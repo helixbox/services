@@ -4,23 +4,25 @@ use {
     crate::{
         boundary,
         domain::{
+            self,
             competition::{self, order},
-            eth::{self, Flashloan, TokenAddress},
         },
         infra::{
-            Simulator,
             blockchain::{self, Ethereum},
             config::file::FeeHandler,
-            simulator,
             solver::{ManageNativeToken, Solver},
         },
     },
     alloy::network::TxSigner,
     chrono::Utc,
+    contracts::ERC20::ERC20,
+    eth_domain_types::{self as eth, TokenAddress},
     futures::future::try_join_all,
     itertools::Itertools,
     num::{BigRational, One},
     number::conversions::{big_rational_to_u256, u256_to_big_int, u256_to_big_rational},
+    simulator::{self, Simulator, encoding::WrapperCall},
+    solvers_dto::solution::Flashloan,
     std::{
         collections::{BTreeSet, HashMap, HashSet, hash_map::Entry},
         sync::atomic::{AtomicU64, Ordering},
@@ -40,12 +42,6 @@ pub use {error::Error, interaction::Interaction, settlement::Settlement, trade::
 
 type Prices = HashMap<eth::TokenAddress, eth::U256>;
 
-#[derive(Clone)]
-pub struct WrapperCall {
-    pub address: eth::Address,
-    pub data: Vec<u8>,
-}
-
 // TODO Add a constructor and ensure that the clearing prices are included for
 // each trade
 /// A solution represents a set of orders which the solver has found an optimal
@@ -57,19 +53,32 @@ pub struct Solution {
     trades: Vec<Trade>,
     prices: Prices,
     #[debug(ignore)]
-    pre_interactions: Vec<eth::Interaction>,
+    pre_interactions: Vec<domain::Interaction>,
     #[debug(ignore)]
     interactions: Vec<Interaction>,
     #[debug(ignore)]
-    post_interactions: Vec<eth::Interaction>,
+    post_interactions: Vec<domain::Interaction>,
     #[debug("{}", solver.name())]
     solver: Solver,
     #[debug(ignore)]
-    weth: eth::WethAddress,
+    weth: eth::WrappedNativeToken,
     gas: Option<eth::Gas>,
+    gas_fee_override: Option<GasFeeOverride>,
     flashloans: HashMap<order::Uid, Flashloan>,
     #[debug(ignore)]
     wrappers: Vec<WrapperCall>,
+}
+
+/// Gas fee overrides provided by the solver, used instead of the driver's
+/// own gas price estimation during settlement submission.
+///
+/// Note: the driver may raise these values above what the solver specified
+/// if a pending replacement transaction requires a higher gas price (a node
+/// requirement for transaction replacement).
+#[derive(Clone, Copy, Debug)]
+pub struct GasFeeOverride {
+    pub max_fee_per_gas: u128,
+    pub max_priority_fee_per_gas: u128,
 }
 
 impl Solution {
@@ -78,12 +87,13 @@ impl Solution {
         id: Id,
         mut trades: Vec<Trade>,
         prices: Prices,
-        pre_interactions: Vec<eth::Interaction>,
+        pre_interactions: Vec<domain::Interaction>,
         interactions: Vec<Interaction>,
-        post_interactions: Vec<eth::Interaction>,
+        post_interactions: Vec<domain::Interaction>,
         solver: Solver,
-        weth: eth::WethAddress,
+        weth: eth::WrappedNativeToken,
         gas: Option<eth::Gas>,
+        gas_fee_override: Option<GasFeeOverride>,
         fee_handler: FeeHandler,
         surplus_capturing_jit_order_owners: &HashSet<eth::Address>,
         flashloans: HashMap<order::Uid, Flashloan>,
@@ -146,6 +156,7 @@ impl Solution {
             solver,
             weth,
             gas,
+            gas_fee_override,
             flashloans,
             wrappers,
         };
@@ -214,11 +225,11 @@ impl Solution {
         &self.interactions
     }
 
-    pub fn pre_interactions(&self) -> &[eth::Interaction] {
+    pub fn pre_interactions(&self) -> &[domain::Interaction] {
         &self.pre_interactions
     }
 
-    pub fn post_interactions(&self) -> &[eth::Interaction] {
+    pub fn post_interactions(&self) -> &[domain::Interaction] {
         &self.post_interactions
     }
 
@@ -229,6 +240,10 @@ impl Solution {
 
     pub fn gas(&self) -> Option<eth::Gas> {
         self.gas
+    }
+
+    pub fn gas_fee_override(&self) -> Option<GasFeeOverride> {
+        self.gas_fee_override
     }
 
     fn trade_count_for_scorable(
@@ -284,24 +299,52 @@ impl Solution {
     }
 
     /// Approval interactions necessary for encoding the settlement.
+    /// To support tokens like USDT which first need to have their allowance
+    /// set to 0 before it can be set to the desired value we simulate each
+    /// `approve()` call and inject additional `approve(0)` interactions when
+    /// we encounter a revert.
+    /// Whenever the needed allowance is less the current allowance no
+    /// `approve()` interactions get encoded to save on gas.
+    /// See <https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729>
     pub async fn approvals(
         &self,
         eth: &Ethereum,
         internalization: settlement::Internalization,
     ) -> Result<impl Iterator<Item = eth::allowance::Approval> + use<>, Error> {
-        let settlement_contract = &eth.contracts().settlement();
+        let settlement_contract = *eth.contracts().settlement().address();
         let allowances =
             try_join_all(self.allowances(internalization).map(|required| async move {
-                eth.erc20(required.0.token)
-                    .allowance(*settlement_contract.address(), required.0.spender)
+                let erc20_token = ERC20::new(required.0.token.into(), &eth.web3().provider);
+
+                let current_allowance = erc20_token
+                    .allowance(settlement_contract, required.0.spender)
+                    .call()
+                    .await?;
+
+                // if the current allowance is sufficient we can skip that interaction
+                if current_allowance >= required.0.amount {
+                    return Ok::<_, blockchain::Error>(vec![]);
+                }
+
+                let regular_approval_succeeds = erc20_token
+                    .approve(required.0.spender, required.0.amount)
+                    .from(settlement_contract)
+                    .call()
                     .await
-                    .map(|existing| (required, existing))
+                    .is_ok();
+
+                let approval = eth::allowance::Approval(required.0);
+                if regular_approval_succeeds {
+                    Ok(vec![approval])
+                } else {
+                    // setting the desired approval reverts so we assume we are
+                    // dealing with a USDT-like token that needs to have the
+                    // approval reset to 0 first
+                    Ok(vec![approval.revoke(), approval])
+                }
             }))
             .await?;
-        let approvals = allowances
-            .into_iter()
-            .filter_map(|(required, existing)| required.approval(&existing));
-        Ok(approvals)
+        Ok(allowances.into_iter().flatten())
     }
 
     /// An empty solution has no trades which is allowed to capture surplus and
@@ -396,6 +439,8 @@ impl Solution {
                 (None, Some(gas)) => Some(gas),
                 (None, None) => None,
             },
+            // Gas fee overrides are per-solution; no meaningful way to merge them.
+            gas_fee_override: None,
             flashloans,
             wrappers: self.wrappers.clone(),
         })
@@ -479,18 +524,18 @@ impl Solution {
             // price is needed. Remove the unneeded WETH price, which slightly reduces
             // gas used by the settlement.
             let mut prices: Prices = if self.user_trades().all(|trade| {
-                trade.order().sell.token != self.weth.0 && trade.order().buy.token != self.weth.0
+                trade.order().sell.token != *self.weth && trade.order().buy.token != *self.weth
             }) {
                 prices
                     .into_iter()
-                    .filter(|(token, _price)| *token != self.weth.0)
+                    .filter(|(token, _price)| *token != *self.weth)
                     .collect()
             } else {
                 prices
             };
 
             // Add a clearing price for ETH equal to WETH.
-            prices.insert(eth::ETH_TOKEN, self.prices[&self.weth.into()].to_owned());
+            prices.insert(eth::ETH_TOKEN, self.prices[&self.weth].to_owned());
 
             return prices;
         }

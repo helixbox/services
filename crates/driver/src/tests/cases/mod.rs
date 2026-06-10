@@ -1,8 +1,8 @@
 //! Test cases.
 
 use {
-    crate::domain::eth,
     bigdecimal::{BigDecimal, FromPrimitive, Signed, num_traits::CheckedMul},
+    eth_domain_types as eth,
     num::BigRational,
     number::{conversions::big_decimal_to_big_rational, u256_ext::U256Ext},
     std::str::FromStr,
@@ -12,7 +12,9 @@ pub mod buy_eth;
 pub mod example_config;
 pub mod fees;
 mod flashloan_hints;
+pub mod gas_fee_override;
 pub mod haircut;
+pub mod haircut_pre_processing;
 pub mod internalization;
 pub mod jit_orders;
 pub mod merge_settlements;

@@ -1,5 +1,5 @@
 use {
-    crate::{api::AppState, solver_competition::LoadSolverCompetitionError},
+    crate::{api::AppState, database::Postgres, solver_competition::LoadSolverCompetitionError},
     alloy::primitives::B256,
     axum::{
         extract::{Path, State},
@@ -21,9 +21,11 @@ pub async fn get_solver_competition_by_id_handler(
         return LoadSolverCompetitionError::NotFound.into_response();
     }
 
-    state
-        .database_read
-        .load_competition_by_id(auction_id.cast_signed())
+    db(&state)
+        .load_competition_by_id(
+            auction_id.cast_signed(),
+            state.hide_competition_before_block(),
+        )
         .await
         .map(Json)
         .into_response()
@@ -33,9 +35,8 @@ pub async fn get_solver_competition_by_hash_handler(
     State(state): State<Arc<AppState>>,
     Path(tx_hash): Path<B256>,
 ) -> Response {
-    state
-        .database_read
-        .load_competition_by_tx_hash(tx_hash)
+    db(&state)
+        .load_competition_by_tx_hash(tx_hash, state.hide_competition_before_block())
         .await
         .map(Json)
         .into_response()
@@ -44,9 +45,33 @@ pub async fn get_solver_competition_by_hash_handler(
 pub async fn get_solver_competition_latest_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<CompetitionResponse>, LoadSolverCompetitionError> {
-    state
-        .database_read
-        .load_latest_competition()
+    db(&state)
+        .load_latest_competition(state.hide_competition_before_block())
         .await
         .map(Json)
+}
+
+/// Internal endpoint that skips deadline filtering (access restricted on
+/// infra level).
+pub async fn get_solver_competition_by_id_unfiltered_handler(
+    State(state): State<Arc<AppState>>,
+    Path(auction_id): Path<u64>,
+) -> Response {
+    if auction_id > AuctionId::MAX.cast_unsigned() {
+        return LoadSolverCompetitionError::NotFound.into_response();
+    }
+
+    db(&state)
+        .load_competition_by_id(auction_id.cast_signed(), None)
+        .await
+        .map(Json)
+        .into_response()
+}
+
+fn db(state: &AppState) -> &Postgres {
+    // While these queries actually don't write to the DB
+    // the latency incurred by the DB replication process
+    // is not acceptable in some cases (e.g. when the circuit
+    // breaker needs to decide whether an tx was out of competition).
+    &state.database_write
 }

@@ -1,18 +1,16 @@
 use {
-    super::{competition::solution::settlement, eth},
+    super::competition::solution::{GasFeeOverride, settlement},
     crate::{
-        domain::{
-            BlockNo,
-            competition::solution::Settlement,
-            eth::{TxId, TxStatus},
-        },
+        domain::{blockchain::TxStatus, competition::solution::Settlement},
         infra::{self, Ethereum, observe},
     },
-    alloy::{consensus::Transaction, eips::eip1559::Eip1559Estimation, sol_types::SolCall},
-    anyhow::Context,
-    contracts::alloy::CowSettlementForwarder::CowSettlementForwarder,
+    alloy::{consensus::Transaction, eips::eip1559::Eip1559Estimation, primitives::Bytes},
+    anyhow::{Context, anyhow},
+    eth_domain_types::{self as eth, BlockNo, TxId},
     ethrpc::block_stream::into_stream,
     futures::{FutureExt, StreamExt, future::select_ok},
+    itertools::Itertools,
+    num::Saturating,
     thiserror::Error,
     tracing::Instrument,
 };
@@ -32,12 +30,12 @@ pub enum SubmissionMode {
     /// Solver EOA signs and submits directly to the settlement contract.
     Direct(eth::Address),
     /// A dedicated submission EOA signs and pays for the tx while routing it
-    /// through the solver's EIP-7702 delegated forwarder contract.
+    /// through the solver's EIP-7702 delegate.
     Delegated {
         /// The address that signs the transaction and whose nonce is used.
         submitter_eoa: eth::Address,
         /// The solver EOA address. In EIP-7702 mode tx.to is set to this
-        /// address (which delegates to a forwarder contract), instead of the
+        /// address (which delegates to Solver7702Delegate), instead of the
         /// settlement contract.
         solver_eoa: eth::Address,
     },
@@ -59,26 +57,53 @@ impl Mempools {
         }
     }
 
+    /// Race the enabled mempools concurrently; first success wins. Pending
+    /// submission futures are dropped at that point and every other mempool is
+    /// recorded as `Superseded`. If every mempool fails, return one of the
+    /// failure errors.
     pub async fn execute(
         &self,
         settlement: &Settlement,
         submission_deadline: BlockNo,
         mode: &SubmissionMode,
     ) -> Result<eth::TxId, Error> {
-        let (submission, _remaining_futures) = select_ok(self.mempools.iter().map(|mempool| {
-            async move {
-                let result = self
-                    .submit(mempool, settlement, submission_deadline, mode)
-                    .instrument(tracing::info_span!("mempool", kind = mempool.to_string()))
-                    .await;
-                observe::mempool_executed(mempool, settlement, &result);
-                result
-            }
-            .boxed()
-        }))
-        .await?;
+        let mut stats = vec![Outcome::Superseded; self.mempools.len()];
 
-        Ok(submission.tx_hash)
+        let res = select_ok(self.mempools.iter().zip(stats.iter_mut()).map(
+            |(mempool, stat)| {
+                async move {
+                    let result = self
+                        .submit(mempool, settlement, submission_deadline, mode)
+                        .instrument(tracing::info_span!("mempool", kind = %mempool))
+                        .await;
+                    // Log inline so errors from mempools that later get superseded still surface;
+                    // metrics are emitted from `update_metrics` once the race outcome is known.
+                    observe::mempool_log(mempool, settlement, &result);
+                    *stat = Outcome::from(&result);
+                    result
+                }
+                .boxed()
+            },
+        ))
+        .await
+        // Drop the remaining futures (and the mutable borrow on `stats` they
+        // carry) so `update_metrics` can read `stats` below.
+        .map(|(success, _remaining)| success);
+
+        self.update_metrics(&stats);
+
+        Ok(res?.tx_hash)
+    }
+
+    /// A mempool is disabled if all of the following are true:
+    /// * the settlement may revert (see [`Settlement::may_revert`])
+    /// * the pool has revert protection enabled (see
+    ///   [`Self::revert_protection`])
+    /// * reverts can get mined (see [`infra::Mempool::reverts_can_get_mined`])
+    fn is_disabled(&self, mempool: &infra::Mempool, settlement: &Settlement) -> bool {
+        settlement.may_revert()
+            && matches!(self.revert_protection(), RevertProtection::Enabled)
+            && mempool.reverts_can_get_mined()
     }
 
     /// Defines if the mempools are configured in a way that guarantees that
@@ -101,12 +126,7 @@ impl Mempools {
         submission_deadline: BlockNo,
         mode: &SubmissionMode,
     ) -> Result<SubmissionSuccess, Error> {
-        // Don't submit risky transactions if revert protection is
-        // enabled and the settlement may revert in this mempool.
-        if settlement.may_revert()
-            && matches!(self.revert_protection(), RevertProtection::Enabled)
-            && mempool.reverts_can_get_mined()
-        {
+        if self.is_disabled(mempool, settlement) {
             return Err(Error::Disabled);
         }
 
@@ -132,8 +152,8 @@ impl Mempools {
                         "settlement tx simulation reverted before submitting to the mempool"
                     );
                     return Err(Error::SimulationRevert {
-                        submitted_at_block: current_block,
-                        reverted_at_block: current_block,
+                        submitted_at_block: current_block.into(),
+                        reverted_at_block: current_block.into(),
                     });
                 } else {
                     tracing::warn!(
@@ -157,7 +177,7 @@ impl Mempools {
             .gas_price()
             .await
             .context("failed to compute current gas price")?;
-        let submission_block = self.ethereum.current_block().borrow().number;
+        let submission_block = self.ethereum.current_block().borrow().number.into();
         let blocks_until_deadline = submission_deadline.saturating_sub(submission_block);
 
         // if there is still a tx pending we also have to make sure we outbid that one
@@ -174,9 +194,15 @@ impl Mempools {
             _ => current_gas_price,
         };
 
+        let final_gas_price = apply_gas_fee_override(
+            final_gas_price,
+            settlement.gas_fee_override(),
+            replacement_gas_price.as_ref(),
+        );
+
         tracing::debug!(
-            submission_block,
-            blocks_until_deadline,
+            ?submission_block,
+            ?blocks_until_deadline,
             ?replacement_gas_price,
             ?current_gas_price,
             ?final_gas_price,
@@ -207,22 +233,22 @@ impl Mempools {
                     });
                 match receipt {
                     TxStatus::Executed { block_number } => return Ok(SubmissionSuccess {
-                        tx_hash: hash.clone(),
-                        submitted_at_block: submission_block.into(),
+                        tx_hash: hash,
+                        submitted_at_block: submission_block,
                         included_in_block: block_number,
                     }),
                     TxStatus::Reverted { block_number } => {
                         return Err(Error::Revert {
-                            tx_id: hash.clone(),
+                            tx_id: hash,
                             submitted_at_block: submission_block,
-                            reverted_at_block: block_number.into(),
+                            reverted_at_block: block_number,
                         })
                     }
                     TxStatus::Pending => {
                         // Check if the current block reached the submission deadline block number
-                        if block.number >= submission_deadline {
+                        if BlockNo(block.number) >= submission_deadline {
                             tracing::debug!(
-                                submission_deadline,
+                                submission_deadline = submission_deadline.0,
                                 current_block = block.number,
                                 settle_tx_hash = ?hash,
                                 "exceeded submission deadline, cancelling"
@@ -231,14 +257,30 @@ impl Mempools {
                                 .cancel(mempool, final_gas_price, signer, nonce)
                                 .await;
                             return Err(Error::Expired {
-                                tx_id: hash.clone(),
+                                tx_id: hash,
                                 submitted_at_block: submission_block,
                                 submission_deadline,
                             });
                         }
                         // Check if transaction still simulates
                         if let Err(err) = self.ethereum.estimate_gas(tx.clone()).await {
-                            if err.is_revert() {
+                            /// Revert data encoding `GPv2: order filled`
+                            const ORDER_FILLED: &[u8] = &alloy::hex!("08c379a0\
+                                0000000000000000000000000000000000000000000000000000000000000020\
+                                0000000000000000000000000000000000000000000000000000000000000012\
+                                475076323a206f726465722066696c6c65640000000000000000000000000000");
+
+                            // We want to simulate on the `pending` block to be able to react to an
+                            // incoming revert BEFORE it happens. However, the tx we submitted earlier
+                            // which is already sitting in the mempool can cause this simulation to
+                            // fail. If the simulation fails because our pending tx interfered with
+                            // us the revert will complain about the order already being filled.
+                            // Since the autopilot only distributes orders while no one else is
+                            // trying to submit txs for it this error is extremely likely a false
+                            // positive so we ignore it.
+                            if err.revert_bytes().is_some_and(|bytes| &bytes == ORDER_FILLED) {
+                                tracing::debug!(?err, "ignoring revert as it's likely a false positive");
+                            } else if err.is_revert() {
                                 tracing::info!(
                                     settle_tx_hash = ?hash,
                                     ?err,
@@ -249,7 +291,7 @@ impl Mempools {
                                     .await;
                                 return Err(Error::SimulationRevert {
                                     submitted_at_block: submission_block,
-                                    reverted_at_block: block.number,
+                                    reverted_at_block: block.number.into(),
                                 });
                             } else {
                                 tracing::warn!(?hash, ?err, "couldn't re-simulate tx");
@@ -258,7 +300,7 @@ impl Mempools {
                     }
                 }
             }
-            Err(Error::Other(anyhow::anyhow!(
+            Err(Error::Other(anyhow!(
                 "Block stream finished unexpectedly"
             )))
         }
@@ -278,7 +320,7 @@ impl Mempools {
                 return Ok(SubmissionSuccess {
                     tx_hash: hash,
                     included_in_block: block_number,
-                    submitted_at_block: submission_block.into(),
+                    submitted_at_block: submission_block,
                 });
             }
         }
@@ -371,12 +413,116 @@ impl Mempools {
             Some(pending_tx_gas_price.scaled_by_pct(GAS_PRICE_BUMP_PCT))
         }
     }
+
+    /// Update per-mempool metrics based on submission outcomes.
+    ///
+    /// When a winner exists, `Failed` outcomes are reclassified as `Superseded`
+    /// since errors are typically race-condition false-positives.
+    fn update_metrics(&self, stats: &[Outcome]) {
+        let winner_exists = stats.iter().any(|s| matches!(s, Outcome::Success { .. }));
+        // Using `zip_eq` to catch regressions in tests (sizes always match in
+        // practice).
+        for (mempool, &outcome) in self.mempools.iter().zip_eq(stats.iter()) {
+            let label = match outcome {
+                Outcome::Failed { .. } if winner_exists => Outcome::Superseded.metric_label(),
+                other => other.metric_label(),
+            };
+            observe::mempool_submission_result(mempool, label, outcome.blocks_passed());
+        }
+    }
 }
 
-/// In EIP-7702 mode, reroute the tx through the solver EOA's delegated
-/// forwarder contract. The original target and calldata are wrapped in a
-/// `forward()` call. `from` is set to the submission EOA so that simulations
-/// see the correct `msg.sender` for the forwarder's caller whitelist.
+#[derive(Clone, Copy)]
+enum Outcome {
+    /// Submission future was dropped because another mempool won the race.
+    Superseded,
+    Success {
+        blocks_passed: u64,
+    },
+    Failed {
+        reason: &'static str,
+        blocks_passed: Option<u64>,
+    },
+    Disabled,
+}
+
+impl Outcome {
+    fn metric_label(self) -> &'static str {
+        match self {
+            Outcome::Superseded => "Superseded",
+            Outcome::Success { .. } => "Success",
+            Outcome::Failed { reason, .. } => reason,
+            Outcome::Disabled => "Disabled",
+        }
+    }
+
+    fn blocks_passed(self) -> Option<u64> {
+        match self {
+            Outcome::Superseded | Outcome::Disabled => None,
+            Outcome::Success { blocks_passed } => Some(blocks_passed),
+            Outcome::Failed { blocks_passed, .. } => blocks_passed,
+        }
+    }
+}
+
+impl From<&Result<SubmissionSuccess, Error>> for Outcome {
+    fn from(result: &Result<SubmissionSuccess, Error>) -> Self {
+        match result {
+            Ok(s) => Outcome::Success {
+                blocks_passed: s.blocks_passed(),
+            },
+            Err(Error::Disabled) => Outcome::Disabled,
+            Err(err @ (Error::Revert { .. } | Error::SimulationRevert { .. })) => Outcome::Failed {
+                reason: "Revert",
+                blocks_passed: err.blocks_passed(),
+            },
+            Err(err @ Error::Expired { .. }) => Outcome::Failed {
+                reason: "Expired",
+                blocks_passed: err.blocks_passed(),
+            },
+            Err(Error::Other(_)) => Outcome::Failed {
+                reason: "Other",
+                blocks_passed: None,
+            },
+        }
+    }
+}
+
+/// Applies the solver's gas fee override if present. When a replacement
+/// transaction is pending, the solver's values are raised to at least the
+/// replacement minimum (a node requirement).
+fn apply_gas_fee_override(
+    driver_estimate: Eip1559Estimation,
+    solver_override: Option<GasFeeOverride>,
+    replacement_price: Option<&Eip1559Estimation>,
+) -> Eip1559Estimation {
+    let Some(gas_override) = solver_override else {
+        return driver_estimate;
+    };
+    let solver_price = Eip1559Estimation {
+        max_fee_per_gas: gas_override.max_fee_per_gas,
+        max_priority_fee_per_gas: gas_override.max_priority_fee_per_gas,
+    };
+    match replacement_price {
+        Some(replacement) => Eip1559Estimation {
+            max_fee_per_gas: std::cmp::max(
+                solver_price.max_fee_per_gas,
+                replacement.max_fee_per_gas,
+            ),
+            max_priority_fee_per_gas: std::cmp::max(
+                solver_price.max_priority_fee_per_gas,
+                replacement.max_priority_fee_per_gas,
+            ),
+        },
+        None => solver_price,
+    }
+}
+
+/// In EIP-7702 mode, reroute the tx through the solver EOA's delegate. Its
+/// fallback expects the 20-byte target address followed by target calldata.
+/// `from` is the submitter EOA so simulations see the correct `msg.sender`
+/// for the delegate's caller whitelist. The solver EOA is in `tx.to` and
+/// becomes `address(this)` when the delegate runs.
 fn prepare_submission(tx: &eth::Tx, mode: &SubmissionMode) -> eth::Tx {
     let mut tx = tx.clone();
     match mode {
@@ -391,15 +537,17 @@ fn prepare_submission(tx: &eth::Tx, mode: &SubmissionMode) -> eth::Tx {
             let original_target = tx.to;
             tx.from = *submitter_eoa;
             tx.to = *solver_eoa;
-            tx.input = CowSettlementForwarder::forwardCall {
-                target: original_target,
-                data: tx.input.clone(),
-            }
-            .abi_encode()
-            .into();
+            tx.input = delegated_calldata(original_target, &tx.input);
             tx
         }
     }
+}
+
+fn delegated_calldata(target: eth::Address, calldata: &Bytes) -> Bytes {
+    let mut input = Vec::with_capacity(target.len() + calldata.len());
+    input.extend_from_slice(target.as_slice());
+    input.extend_from_slice(calldata);
+    input.into()
 }
 
 pub struct SubmissionSuccess {
@@ -408,6 +556,15 @@ pub struct SubmissionSuccess {
     pub included_in_block: eth::BlockNo,
     /// In which block the transaction actually appeared onchain.
     pub submitted_at_block: eth::BlockNo,
+}
+
+impl SubmissionSuccess {
+    /// Number of blocks between submission start and on-chain inclusion.
+    pub fn blocks_passed(&self) -> u64 {
+        self.included_in_block
+            .saturating_sub(self.submitted_at_block)
+            .0
+    }
 }
 
 #[derive(Debug, Error)]
@@ -454,4 +611,69 @@ pub enum Error {
     Disabled,
     #[error("Failed to submit: {0:?}")]
     Other(#[from] anyhow::Error),
+}
+
+impl Error {
+    /// Number of blocks between the first submission and when the error was
+    /// returned, if the error carries that timing.
+    pub fn blocks_passed(&self) -> Option<u64> {
+        let (start, end) = match self {
+            Self::Revert {
+                submitted_at_block,
+                reverted_at_block,
+                ..
+            }
+            | Self::SimulationRevert {
+                submitted_at_block,
+                reverted_at_block,
+            } => (*submitted_at_block, *reverted_at_block),
+            Self::Expired {
+                submitted_at_block,
+                submission_deadline,
+                ..
+            } => (*submitted_at_block, *submission_deadline),
+            Self::Disabled | Self::Other(_) => return None,
+        };
+        Some(end.saturating_sub(start).0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        alloy::primitives::{Bytes, address},
+    };
+
+    const ORIGINAL_FROM: eth::Address = address!("0000000000000000000000000000000000000001");
+    const SETTLEMENT: eth::Address = address!("0000000000000000000000000000000000000002");
+    const SOLVER: eth::Address = address!("0000000000000000000000000000000000000003");
+    const SUBMITTER: eth::Address = address!("0000000000000000000000000000000000000004");
+
+    fn tx(input: Bytes) -> eth::Tx {
+        eth::Tx {
+            from: ORIGINAL_FROM,
+            to: SETTLEMENT,
+            value: 0.into(),
+            input,
+            access_list: Default::default(),
+        }
+    }
+
+    #[test]
+    fn delegated_submission_rewrites_transaction() {
+        let prepared = prepare_submission(
+            &tx(Bytes::from_static(&[0xaa, 0xbb])),
+            &SubmissionMode::Delegated {
+                submitter_eoa: SUBMITTER,
+                solver_eoa: SOLVER,
+            },
+        );
+        let mut expected = SETTLEMENT.as_slice().to_vec();
+        expected.extend_from_slice(&[0xaa, 0xbb]);
+
+        assert_eq!(prepared.from, SUBMITTER);
+        assert_eq!(prepared.to, SOLVER);
+        assert_eq!(prepared.input, Bytes::from(expected));
+    }
 }

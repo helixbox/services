@@ -4,7 +4,6 @@ use {
         fee::FeeParameters,
         order_validation::PreOrderData,
     },
-    account_balances::{BalanceFetching, Query},
     alloy::primitives::{Address, U256, U512, ruint::UintTryFrom},
     anyhow::{Context, Result},
     chrono::{DateTime, Duration, Utc},
@@ -20,10 +19,8 @@ use {
     number::conversions::big_decimal_to_u256,
     price_estimation::{
         self,
-        Estimate,
         PriceEstimating,
         PriceEstimationError,
-        QuoteVerificationMode,
         Verification,
         native::NativePriceEstimating,
         trade_finding::external::dto,
@@ -49,6 +46,7 @@ impl QuoteParameters {
     fn to_price_query(
         &self,
         default_quote_timeout: std::time::Duration,
+        max_quote_timeout: std::time::Duration,
     ) -> price_estimation::Query {
         let (kind, in_amount) = match self.side {
             OrderQuoteSide::Sell {
@@ -64,7 +62,7 @@ impl QuoteParameters {
         let timeout = self
             .timeout
             .unwrap_or(default_quote_timeout)
-            .min(default_quote_timeout);
+            .min(max_quote_timeout);
 
         price_estimation::Query {
             verification: self.verification.clone(),
@@ -418,23 +416,24 @@ pub struct OrderQuoter {
     storage: Arc<dyn QuoteStoring>,
     now: Arc<dyn Now>,
     validity: Validity,
-    balance_fetcher: Arc<dyn BalanceFetching>,
-    quote_verification: QuoteVerificationMode,
     default_quote_timeout: std::time::Duration,
+    max_quote_timeout: std::time::Duration,
 }
 
 impl OrderQuoter {
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         price_estimator: Arc<dyn PriceEstimating>,
         native_price_estimator: Arc<dyn NativePriceEstimating>,
         gas_estimator: Arc<dyn GasPriceEstimating>,
         storage: Arc<dyn QuoteStoring>,
         validity: Validity,
-        balance_fetcher: Arc<dyn BalanceFetching>,
-        quote_verification: QuoteVerificationMode,
         default_quote_timeout: std::time::Duration,
+        max_quote_timeout: std::time::Duration,
     ) -> Self {
+        assert!(
+            max_quote_timeout >= default_quote_timeout,
+            "max-quote-timeout needs to be greater or equal quote-timeout"
+        );
         Self {
             price_estimator,
             native_price_estimator,
@@ -442,9 +441,8 @@ impl OrderQuoter {
             storage,
             now: Arc::new(Utc::now),
             validity,
-            balance_fetcher,
-            quote_verification,
             default_quote_timeout,
+            max_quote_timeout,
         }
     }
 
@@ -463,7 +461,8 @@ impl OrderQuoter {
             _ => self.now.now() + self.validity.standard_quote,
         };
 
-        let trade_query = Arc::new(parameters.to_price_query(self.default_quote_timeout));
+        let trade_query =
+            Arc::new(parameters.to_price_query(self.default_quote_timeout, self.max_quote_timeout));
         let (effective_gas_price, trade_estimate, sell_token_price, _) = futures::try_join!(
             self.gas_estimator
                 .effective_gas_price()
@@ -496,14 +495,12 @@ impl OrderQuoter {
                 buy_amount_after_fee: buy_amount,
             } => (trade_estimate.out_amount, buy_amount.get()),
         };
+
         let fee_parameters = FeeParameters {
-            gas_amount: trade_estimate.gas as _,
+            gas_amount: trade_estimate.gas as f64,
             gas_price: effective_gas_price as f64,
             sell_token_price,
         };
-
-        self.verify_quote(&trade_estimate, parameters, quoted_sell_amount)
-            .await?;
 
         let quote_kind = quote_kind_from_signing_scheme(&parameters.signing_scheme);
         let quote = QuoteData {
@@ -526,64 +523,6 @@ impl OrderQuoter {
         };
 
         Ok(quote)
-    }
-
-    /// Makes sure a quote was verified according to the configured rule.
-    async fn verify_quote(
-        &self,
-        estimate: &Estimate,
-        parameters: &QuoteParameters,
-        sell_amount: U256,
-    ) -> Result<(), CalculateQuoteError> {
-        if estimate.verified
-            || !matches!(
-                self.quote_verification,
-                QuoteVerificationMode::EnforceWhenPossible
-            )
-        {
-            // verification was successful or not strictly required
-            return Ok(());
-        }
-
-        let balance = match self
-            .get_balance(&parameters.verification, parameters.sell_token)
-            .await
-        {
-            Ok(balance) => balance,
-            Err(err) => {
-                tracing::warn!(?err, "could not fetch balance for verification");
-                return Err(CalculateQuoteError::QuoteNotVerified);
-            }
-        };
-
-        if balance >= sell_amount {
-            // Quote could not be verified although user has the required balance.
-            // This likely indicates a weird token that solvers are not able to handle.
-            return Err(CalculateQuoteError::QuoteNotVerified);
-        }
-
-        Ok(())
-    }
-
-    async fn get_balance(&self, verification: &Verification, token: Address) -> Result<U256> {
-        let query = Query {
-            owner: verification.from,
-            token,
-            source: verification.sell_token_source,
-            interactions: verification
-                .pre_interactions
-                .iter()
-                .map(|i| InteractionData {
-                    target: i.target,
-                    value: i.value,
-                    call_data: i.data.clone(),
-                })
-                .collect(),
-            // quote verification already tries to auto-fake missing balances
-            balance_override: None,
-        };
-        let mut balances = self.balance_fetcher.get_balances(&[query]).await;
-        balances.pop().context("missing balance result")?
     }
 }
 
@@ -788,7 +727,6 @@ mod tests {
         super::*,
         Address,
         U256 as AlloyU256,
-        account_balances::MockBalanceFetching,
         alloy::eips::eip1559::Eip1559Estimation,
         chrono::Utc,
         futures::FutureExt,
@@ -802,13 +740,6 @@ mod tests {
             native::MockNativePriceEstimating,
         },
     };
-
-    fn mock_balance_fetcher() -> Arc<dyn BalanceFetching> {
-        let mut mock = MockBalanceFetching::new();
-        mock.expect_get_balances()
-            .returning(|addresses| addresses.iter().map(|_| Ok(U256::MAX)).collect());
-        Arc::new(mock)
-    }
 
     #[test]
     fn pre_order_data_from_quote_request() {
@@ -936,9 +867,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: super::Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         let quote = quoter.calculate_quote(parameters).await.unwrap();
@@ -1076,9 +1006,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         let quote = quoter.calculate_quote(parameters).await.unwrap();
@@ -1211,9 +1140,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         let quote = quoter.calculate_quote(parameters).await.unwrap();
@@ -1309,9 +1237,8 @@ mod tests {
             storage: Arc::new(MockQuoteStoring::new()),
             now: Arc::new(Utc::now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert!(matches!(
@@ -1382,9 +1309,8 @@ mod tests {
             storage: Arc::new(MockQuoteStoring::new()),
             now: Arc::new(Utc::now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert!(matches!(
@@ -1443,9 +1369,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert_eq!(
@@ -1526,9 +1451,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert_eq!(
@@ -1611,9 +1535,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert_eq!(
@@ -1684,9 +1607,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert!(matches!(
@@ -1715,9 +1637,8 @@ mod tests {
             storage: Arc::new(storage),
             now: Arc::new(Utc::now),
             validity: Validity::default(),
-            quote_verification: QuoteVerificationMode::Unverified,
-            balance_fetcher: mock_balance_fetcher(),
             default_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
+            max_quote_timeout: HEALTHY_PRICE_ESTIMATION_TIME,
         };
 
         assert!(matches!(

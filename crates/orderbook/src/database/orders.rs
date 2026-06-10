@@ -106,6 +106,7 @@ async fn cancel_order(
             order_uid: uid,
             timestamp: now,
             label: OrderEventLabel::Cancelled,
+            reason: None,
         },
     )
     .await?;
@@ -121,6 +122,7 @@ async fn insert_order(order: &Order, ex: &mut PgConnection) -> Result<(), Insert
             order_uid,
             timestamp: Utc::now(),
             label: OrderEventLabel::Created,
+            reason: None,
         },
     )
     .await?;
@@ -218,12 +220,11 @@ impl OrderStoring for Postgres {
             .with_label_values(&["insert_order"])
             .start_timer();
 
-        let order = order.clone();
         let mut connection = self.pool.acquire().await?;
         let mut ex = connection.begin().await?;
 
-        insert_order(&order, &mut ex).await?;
-        Self::insert_order_app_data(&order, &mut ex).await?;
+        insert_order(order, &mut ex).await?;
+        Self::insert_order_app_data(order, &mut ex).await?;
 
         ex.commit().await?;
         Ok(())

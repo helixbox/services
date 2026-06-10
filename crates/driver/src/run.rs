@@ -12,13 +12,15 @@ use {
             config,
             liquidity,
             notify,
-            simulator::{self, Simulator},
             solver::Solver,
         },
     },
     clap::Parser,
+    eth_domain_types as eth,
     futures::future::join_all,
+    http_client::HttpClientFactory,
     shared::arguments::tracing_config,
+    simulator::{self, Simulator},
     std::{net::SocketAddr, sync::Arc, time::Duration},
     tokio::sync::oneshot,
 };
@@ -62,7 +64,18 @@ async fn run_with(args: cli::Args, addr_sender: Option<oneshot::Sender<SocketAdd
     tracing::info!(%commit_hash, "running driver with {config:#?}");
 
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
-    let eth = ethereum(&config, ethrpc, &args.current_block).await;
+    let eth = ethereum(&config, ethrpc.clone(), &args.current_block).await;
+    let simulator_eth = simulator::Ethereum::new(
+        ethrpc.web3().clone(),
+        ethrpc.chain(),
+        configs::simulator::Addresses {
+            settlement: config.contracts.settlement.map(|address| *address),
+            weth: config.contracts.weth.map(|address| *address),
+        },
+        eth.gas_estimator(),
+        eth.current_block().clone(),
+        config.tx_gas_limit,
+    );
     let app_data_retriever = match &config.app_data_fetching {
         config::file::AppDataFetching::Enabled {
             orderbook_url,
@@ -71,9 +84,9 @@ async fn run_with(args: cli::Args, addr_sender: Option<oneshot::Sender<SocketAdd
         config::file::AppDataFetching::Disabled => None,
     };
     let solvers = solvers(&config, &eth).await;
-
-    // Set up EIP-7702 delegation and caller approval for solvers with
-    // parallel submission accounts. Must happen before the HTTP server
+    let http_factory = HttpClientFactory::new(&config.http);
+    // Set up EIP-7702 delegate deployment and solver delegation for solvers
+    // with parallel submission accounts. Must happen before the HTTP server
     // starts accepting /settle requests.
     infra::solver::eip7702::setup(&solvers, &eth)
         .await
@@ -83,7 +96,7 @@ async fn run_with(args: cli::Args, addr_sender: Option<oneshot::Sender<SocketAdd
         solvers,
         liquidity: liquidity(&config, &eth).await,
         liquidity_sources_notifier: liquidity_sources_notifier(&config, &eth),
-        simulator: simulator(&config, &eth),
+        simulator: simulator(&config, simulator_eth, &http_factory),
         mempools: Mempools::try_new(
             config
                 .mempools
@@ -136,34 +149,29 @@ async fn run_with(args: cli::Args, addr_sender: Option<oneshot::Sender<SocketAdd
     };
 }
 
-fn simulator(config: &infra::Config, eth: &Ethereum) -> Simulator {
+fn simulator(
+    config: &infra::Config,
+    eth: simulator::Ethereum,
+    http_factory: &HttpClientFactory,
+) -> Simulator {
     let mut simulator = match &config.simulator {
-        Some(infra::simulator::Config::Tenderly(tenderly)) => Simulator::tenderly(
-            simulator::tenderly::Config {
-                url: tenderly.url.to_owned(),
-                api_key: tenderly.api_key.to_owned(),
-                user: tenderly.user.to_owned(),
-                project: tenderly.project.to_owned(),
-                save: tenderly.save,
-                save_if_fails: tenderly.save_if_fails,
-            },
-            eth.to_owned(),
-        ),
-        Some(infra::simulator::Config::Enso(enso)) => Simulator::enso(
-            simulator::enso::Config {
-                url: enso.url.to_owned(),
-                network_block_interval: enso.network_block_interval.to_owned(),
-            },
-            eth.to_owned(),
-        ),
-        None => Simulator::ethereum(eth.to_owned()),
+        configs::simulator::Config {
+            kind: configs::simulator::SimulatorKind::Tenderly(config),
+            ..
+        } => Simulator::tenderly(config, eth, http_factory),
+        configs::simulator::Config {
+            kind: configs::simulator::SimulatorKind::Ethereum,
+            ..
+        } => Simulator::ethereum(eth),
     };
+
     if config.disable_access_list_simulation {
-        simulator.disable_access_lists()
+        simulator.disable_access_lists();
     }
     if let Some(gas) = config.disable_gas_simulation {
-        simulator.disable_gas(gas)
+        simulator.disable_gas(gas);
     }
+
     simulator
 }
 
@@ -192,8 +200,8 @@ async fn ethereum(
         ethrpc,
         config.contracts.clone(),
         gas,
-        config.tx_gas_limit,
         current_block_args,
+        eth::Gas(config.tx_gas_limit),
     )
     .await
 }

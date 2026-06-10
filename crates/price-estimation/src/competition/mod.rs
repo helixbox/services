@@ -108,9 +108,10 @@ impl<T: Send + Sync + 'static> CompetitionEstimator<T> {
 
             while stage_index < self.stages.len() && requests.len() < requests_for_batch {
                 let stage = &self.stages.get(stage_index).expect("index checked by loop");
-                let futures = stage.iter().enumerate().map(|(index, (_name, estimator))| {
+                let futures = stage.iter().enumerate().map(|(index, (name, estimator))| {
                     get_single_result(Context {
                         estimator,
+                        name,
                         query: query.clone(),
                         remaining_stages: Arc::clone(&remaining_stages),
                     })
@@ -175,6 +176,8 @@ struct Context<'a, ESTIMATOR, QUERY> {
     /// the number of stages that are left after the queries
     /// produced by this Context's stages.
     remaining_stages: Arc<OnceLock<usize>>,
+    /// Name of the estimator
+    name: &'a str,
 }
 
 impl<'a, E, Q> Context<'a, E, Q> {
@@ -194,6 +197,10 @@ fn compare_error(a: &PriceEstimationError, b: &PriceEstimationError) -> Ordering
     fn error_to_integer_priority(err: &PriceEstimationError) -> u8 {
         match err {
             // highest priority (prefer)
+            PriceEstimationError::TradingOutsideAllowedWindow { .. }
+            | PriceEstimationError::TokenTemporarilySuspended { .. }
+            | PriceEstimationError::InsufficientLiquidity { .. }
+            | PriceEstimationError::CustomSolverError { .. } => 6,
             PriceEstimationError::RateLimited => 5,
             PriceEstimationError::ProtocolInternal(_) => 4,
             PriceEstimationError::EstimatorInternal(_) => 3,
@@ -589,5 +596,42 @@ mod tests {
         };
 
         racing.estimate(query).await.unwrap();
+    }
+
+    #[test]
+    fn custom_solver_errors_have_higher_priority_than_generic_errors() {
+        let custom_errors = [
+            PriceEstimationError::TradingOutsideAllowedWindow {
+                message: "window".to_string(),
+            },
+            PriceEstimationError::TokenTemporarilySuspended {
+                message: "suspended".to_string(),
+            },
+            PriceEstimationError::InsufficientLiquidity {
+                message: "insufficient".to_string(),
+            },
+            PriceEstimationError::CustomSolverError {
+                message: "custom".to_string(),
+            },
+        ];
+
+        let generic_errors = [
+            PriceEstimationError::RateLimited,
+            PriceEstimationError::ProtocolInternal(anyhow!("protocol")),
+            PriceEstimationError::EstimatorInternal(anyhow!("estimator")),
+            PriceEstimationError::UnsupportedToken {
+                token: Address::new([0; 20]),
+                reason: "unsupported".to_string(),
+            },
+            PriceEstimationError::NoLiquidity,
+            PriceEstimationError::UnsupportedOrderType("buy".to_string()),
+        ];
+
+        for custom in &custom_errors {
+            for generic in &generic_errors {
+                assert_eq!(compare_error(custom, generic), Ordering::Greater);
+                assert_eq!(compare_error(generic, custom), Ordering::Less);
+            }
+        }
     }
 }

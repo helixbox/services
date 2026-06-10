@@ -1,6 +1,5 @@
 use {
     super::{
-        Arguments,
         NativePriceEstimator as NativePriceEstimatorSource,
         PriceEstimating,
         competition::CompetitionEstimator,
@@ -15,19 +14,20 @@ use {
         ExternalSolver,
         buffered::{self, BufferedRequest, NativePriceBatchFetching},
         competition::PriceRanking,
-        config::native_price::NativePriceConfig,
-        trade_verifier::{code_fetching::CachedCodeFetcher, tenderly_api::TenderlyCodeSimulator},
-        utils::http_client_factory::HttpClientFactory,
+        config::{native_price::NativePriceConfig, price_estimation::BalanceOverridesConfigExt},
     },
     alloy::primitives::Address,
     anyhow::{Context as _, Result},
     bad_tokens::list_based::DenyListedTokens,
-    contracts::alloy::WETH9,
+    configs::price_estimation::PriceEstimation,
+    contracts::{GPv2Settlement, WETH9},
     ethrpc::{Web3, alloy::ProviderLabelingExt, block_stream::CurrentBlockWatcher},
     gas_price_estimation::GasPriceEstimating,
+    http_client::HttpClientFactory,
     number::nonzero::NonZeroU256,
     rate_limit::RateLimiter,
     reqwest::Url,
+    simulator::{simulation_builder::SettlementSimulator, tenderly},
     std::{collections::HashMap, num::NonZeroUsize, sync::Arc},
     token_info::TokenInfoFetching,
 };
@@ -48,6 +48,8 @@ pub struct Network {
     pub settlement: Address,
     pub authenticator: Address,
     pub block_stream: CurrentBlockWatcher,
+    pub flash_loan_router: Address,
+    pub hooks_trampoline: Address,
 }
 
 /// The shared components needed for creating price estimators.
@@ -55,28 +57,34 @@ pub struct Components {
     pub http_factory: HttpClientFactory,
     pub deny_listed_tokens: DenyListedTokens,
     pub tokens: Arc<dyn TokenInfoFetching>,
-    pub code_fetcher: Arc<CachedCodeFetcher>,
 }
 
 /// A factory for initializing shared price estimators.
 pub struct PriceEstimatorFactory<'a> {
-    args: &'a Arguments,
+    args: &'a PriceEstimation,
     config: &'a NativePriceConfig,
     network: Network,
     components: Components,
+    settlement_simulator: Option<SettlementSimulator>,
     trade_verifier: Option<Arc<dyn TradeVerifying>>,
     estimators: HashMap<String, EstimatorEntry>,
 }
 
 impl<'a> PriceEstimatorFactory<'a> {
     pub async fn new(
-        args: &'a Arguments,
+        args: &'a PriceEstimation,
         config: &'a NativePriceConfig,
         network: Network,
         components: Components,
     ) -> Result<Self> {
+        let (settlement_simulator, tenderly) =
+            Self::build_simulator(args, &network, &components).await?;
+        let trade_verifier = settlement_simulator
+            .as_ref()
+            .map(|simulator| Self::build_trade_verifier(args, simulator.clone(), tenderly));
         Ok(Self {
-            trade_verifier: Self::trade_verifier(args, &network, &components).await?,
+            settlement_simulator,
+            trade_verifier,
             args,
             config,
             network,
@@ -85,37 +93,60 @@ impl<'a> PriceEstimatorFactory<'a> {
         })
     }
 
-    async fn trade_verifier(
-        args: &'a Arguments,
+    pub fn settlement_simulator(&self) -> Option<&SettlementSimulator> {
+        self.settlement_simulator.as_ref()
+    }
+
+    async fn build_simulator(
+        args: &PriceEstimation,
         network: &Network,
         components: &Components,
-    ) -> Result<Option<Arc<dyn TradeVerifying>>> {
+    ) -> Result<(Option<SettlementSimulator>, Option<Arc<dyn tenderly::Api>>)> {
         let Some(web3) = network.simulation_web3.clone() else {
-            return Ok(None);
+            return Ok((None, None));
         };
         let web3 = web3.labeled("simulator");
 
-        let tenderly = args
-            .tenderly
-            .get_api_instance(&components.http_factory, "price_estimation".to_owned())
-            .unwrap()
-            .map(|t| Arc::new(TenderlyCodeSimulator::new(t, network.chain.id())));
-
         let balance_overrides = args.balance_overrides.init(web3.clone());
 
-        let verifier = TradeVerifier::new(
-            web3,
-            tenderly,
-            components.code_fetcher.clone(),
+        let tenderly = args.tenderly.as_ref().map(|config| {
+            Arc::new(tenderly::TenderlyApi::new_instrumented(
+                "price_estimation".to_string(),
+                config,
+                &components.http_factory,
+                network.chain.id().to_string(),
+            )) as Arc<dyn tenderly::Api>
+        });
+        let settlement_contract =
+            GPv2Settlement::GPv2Settlement::new(network.settlement, web3.provider.clone());
+        let simulator = SettlementSimulator::new(
+            settlement_contract,
+            network.flash_loan_router,
+            network.hooks_trampoline,
+            network.native_token,
+            args.max_gas_per_tx,
             balance_overrides,
             network.block_stream.clone(),
-            network.settlement,
-            network.native_token,
-            args.quote_inaccuracy_limit.clone(),
-            args.tokens_without_verification.iter().cloned().collect(),
+            tenderly.clone(),
         )
         .await?;
-        Ok(Some(Arc::new(verifier)))
+
+        Ok((Some(simulator), tenderly))
+    }
+
+    fn build_trade_verifier(
+        args: &PriceEstimation,
+        simulator: SettlementSimulator,
+        tenderly: Option<Arc<dyn tenderly::Api>>,
+    ) -> Arc<dyn TradeVerifying> {
+        Arc::new(TradeVerifier::new(
+            simulator,
+            tenderly,
+            args.quote_inaccuracy_limit.clone(),
+            args.tokens_without_verification.iter().cloned().collect(),
+            args.min_gas_amount_for_unverified_quotes,
+            args.max_gas_amount_for_unverified_quotes,
+        ))
     }
 
     fn native_token_price_estimation_amount(&self) -> Result<NonZeroU256> {
@@ -202,14 +233,19 @@ impl<'a> PriceEstimatorFactory<'a> {
                 ))
             }
             NativePriceEstimatorSource::OneInchSpotPriceApi => {
+                let one_inch = self
+                    .args
+                    .one_inch
+                    .as_ref()
+                    .context("one-inch config must be set when OneInchSpotPriceApi is used")?;
                 let name = "OneInchSpotPriceApi".to_string();
                 Ok((
                     name.clone(),
                     Arc::new(InstrumentedPriceEstimator::new(
                         native::OneInch::new(
                             self.components.http_factory.create(),
-                            self.args.one_inch_url.clone(),
-                            self.args.one_inch_api_key.clone(),
+                            one_inch.url.clone(),
+                            Some(one_inch.api_key.clone()),
                             self.network.chain.id(),
                             self.network.block_stream.clone(),
                             self.components.tokens.clone(),
@@ -219,17 +255,17 @@ impl<'a> PriceEstimatorFactory<'a> {
                 ))
             }
             NativePriceEstimatorSource::CoinGecko => {
-                anyhow::ensure!(
-                    self.args.coin_gecko.coin_gecko_api_key.is_some(),
-                    "coin_gecko_api_key must be set when CoinGecko is used as native price \
-                     estimator"
-                );
+                let coin_gecko_config = self
+                    .args
+                    .coin_gecko
+                    .as_ref()
+                    .context("coin-gecko config must be set when CoinGecko is used")?;
 
                 let name = "CoinGecko".to_string();
                 let coin_gecko = native::CoinGecko::new(
                     self.components.http_factory.create(),
-                    self.args.coin_gecko.coin_gecko_url.clone(),
-                    self.args.coin_gecko.coin_gecko_api_key.clone(),
+                    coin_gecko_config.url.clone(),
+                    Some(coin_gecko_config.api_key.clone()),
                     &self.network.chain,
                     *weth.address(),
                     self.components.tokens.clone(),
@@ -237,9 +273,7 @@ impl<'a> PriceEstimatorFactory<'a> {
                 .await?;
 
                 let coin_gecko: Arc<dyn NativePriceEstimating> =
-                    if let Some(coin_gecko_buffered_configuration) =
-                        &self.args.coin_gecko.coin_gecko_buffered
-                    {
+                    if let Some(buffered_config) = &coin_gecko_config.buffered {
                         let configuration = buffered::Configuration {
                             max_concurrent_requests: Some(
                                 coin_gecko
@@ -247,13 +281,9 @@ impl<'a> PriceEstimatorFactory<'a> {
                                     .try_into()
                                     .context("invalid CoinGecko max batch size")?,
                             ),
-                            debouncing_time: coin_gecko_buffered_configuration
-                                .coin_gecko_debouncing_time
-                                .unwrap(),
+                            debouncing_time: buffered_config.debouncing_time,
                             result_ready_timeout: self.args.quote_timeout,
-                            broadcast_channel_capacity: coin_gecko_buffered_configuration
-                                .coin_gecko_broadcast_channel_capacity
-                                .unwrap(),
+                            broadcast_channel_capacity: buffered_config.broadcast_channel_capacity,
                         };
 
                         Arc::new(InstrumentedPriceEstimator::new(
@@ -355,7 +385,9 @@ impl<'a> PriceEstimatorFactory<'a> {
         ))
     }
 
-    /// Creates a native price estimator from the given sources.
+    /// Creates a native price estimator from the given sources. When `eip4626`
+    /// is true the resulting estimator is wrapped in an [`native::Eip4626`]
+    /// layer that transparently prices vault tokens.
     pub async fn native_price_estimator(
         &mut self,
         native: &[Vec<NativePriceEstimatorSource>],
@@ -380,17 +412,29 @@ impl<'a> PriceEstimatorFactory<'a> {
 
     /// Creates a [`CachingNativePriceEstimator`] that wraps a native price
     /// estimator with an in-memory cache.
+    ///
+    /// If `eip4626` is true, it will wrap the estimator with EIP-4626
+    /// unwrapping.
     pub async fn caching_native_price_estimator(
         &mut self,
         native: &[Vec<NativePriceEstimatorSource>],
         results_required: NonZeroUsize,
         weth: &WETH9::Instance,
         cache: native_price_cache::Cache,
+        eip4626: bool,
     ) -> native_price_cache::CachingNativePriceEstimator {
         let inner = self
             .native_price_estimator(native, results_required, weth)
             .await
             .expect("failed to build native price estimator");
+        let inner = if eip4626 {
+            Box::new(InstrumentedPriceEstimator::new(
+                native::Eip4626::new(inner, self.network.web3.provider.clone()),
+                "Eip4626".to_string(),
+            ))
+        } else {
+            inner
+        };
         self.caching_native_price_estimator_from_inner(inner, cache)
             .await
     }

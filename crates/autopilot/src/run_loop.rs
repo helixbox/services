@@ -11,7 +11,6 @@ use {
                 Unscored,
                 winner_selection::{self, Ranking},
             },
-            eth::{self, TxId},
             settlement::{ExecutionEnded, ExecutionStarted},
         },
         infra::{
@@ -28,7 +27,9 @@ use {
     ::winner_selection::state::RankedItem,
     alloy::primitives::B256,
     anyhow::{Context, Result},
+    chrono::{DateTime, Utc},
     database::order_events::OrderEventLabel,
+    eth_domain_types::{self as eth, Address, TxId},
     ethrpc::block_stream::BlockInfo,
     futures::{FutureExt, TryFutureExt},
     itertools::Itertools,
@@ -57,7 +58,8 @@ use {
 pub struct Config {
     pub submission_deadline: u64,
     pub max_settlement_transaction_wait: Duration,
-    pub solve_deadline: Duration,
+    pub min_solve_time: Duration,
+    pub sync_solve_deadline_to_blockchain: Option<SlotConfig>,
     /// How much time past observing the current block the runloop is
     /// allowed to start before it has to re-synchronize to the blockchain
     /// by waiting for the next block to appear.
@@ -66,6 +68,34 @@ pub struct Config {
     pub max_solutions_per_solver: NonZeroUsize,
     pub enable_leader_lock: bool,
     pub compress_solve_request: bool,
+}
+
+impl From<configs::autopilot::run_loop::RunLoopConfig> for Config {
+    fn from(value: configs::autopilot::run_loop::RunLoopConfig) -> Self {
+        Self {
+            submission_deadline: value.submission_deadline,
+            max_settlement_transaction_wait: value.max_settlement_transaction_wait,
+            min_solve_time: value.min_solve_time,
+            max_run_loop_delay: value.max_delay,
+            max_winners_per_auction: value.max_winners_per_auction,
+            max_solutions_per_solver: value.max_solutions_per_solver,
+            enable_leader_lock: value.enable_leader_lock,
+            compress_solve_request: value.compress_solve_request,
+            sync_solve_deadline_to_blockchain: value.sync_solve_deadline_to_blockchain.map(|cfg| {
+                SlotConfig {
+                    slot_length: cfg.slot_length,
+                    tx_propagation_latency: cfg.tx_propagation_latency,
+                }
+            }),
+        }
+    }
+}
+
+/// Specifies the timing of the block timings of PoS chains
+/// and how to synchronize tx submission to it.
+pub struct SlotConfig {
+    pub slot_length: Duration,
+    pub tx_propagation_latency: Duration,
 }
 
 pub struct Probes {
@@ -193,6 +223,17 @@ impl RunLoop {
         });
     }
 
+    fn pick_solve_deadline(&self) -> DateTime<Utc> {
+        let now = chrono::Utc::now();
+        let last_block = *self.eth.current_block().borrow();
+        pick_solve_deadline_impl(
+            now,
+            self.config.min_solve_time,
+            self.config.sync_solve_deadline_to_blockchain.as_ref(),
+            last_block,
+        )
+    }
+
     #[instrument(skip_all)]
     async fn update_caches(&self, prev_block: &mut Option<B256>, is_leader: bool) -> BlockInfo {
         let current_block = *self.eth.current_block().borrow();
@@ -266,7 +307,6 @@ impl RunLoop {
             tracing::debug!("no current auction");
             return None;
         };
-        let auction = self.remove_in_flight_orders(auction).await;
         let id = self
             .persistence
             .get_next_auction_id()
@@ -478,12 +518,11 @@ impl RunLoop {
                         buy_amount: order.executed_buy.0,
                     })
                     .collect(),
-                clearing_prices: bid
-                    .solution()
-                    .prices()
-                    .iter()
-                    .map(|(token, price)| (token.0, price.get().0))
-                    .collect(),
+                // Always empty — kept to avoid breaking the solver competition
+                // API (`/api/v1/solver_competition`).
+                // NOTE: since the v1 has been removed,
+                // we'll probably be able to remove this soon too
+                clearing_prices: Default::default(),
                 is_winner: bid.is_winner(),
                 filtered_out: bid.is_filtered_out(),
             })
@@ -504,7 +543,7 @@ impl RunLoop {
                 prices: auction
                     .prices
                     .iter()
-                    .map(|(key, value)| (key.0, value.get().0))
+                    .map(|(key, value)| (Address::from(*key), value.get().0))
                     .collect(),
             },
             solutions,
@@ -517,7 +556,7 @@ impl RunLoop {
                 .prices
                 .clone()
                 .into_iter()
-                .map(|(key, value)| (key.0, value.get().0))
+                .map(|(key, value)| (*key, value.get().0))
                 .collect(),
             block_deadline,
             competition_simulation_block,
@@ -558,10 +597,12 @@ impl RunLoop {
     /// Returns all fair solutions sorted by their score (best to worst).
     #[instrument(skip_all)]
     async fn fetch_solutions(&self, auction: &domain::Auction) -> Vec<competition::Bid<Unscored>> {
+        let deadline = self.pick_solve_deadline();
+
         let request = solve::Request::new(
             auction,
             &self.trusted_tokens.all(),
-            self.config.solve_deadline,
+            deadline,
             self.config.compress_solve_request,
         )
         .await;
@@ -601,7 +642,7 @@ impl RunLoop {
         });
 
         // Shuffle so that sorting randomly splits ties.
-        bids.shuffle(&mut rand::thread_rng());
+        bids.shuffle(&mut rand::rng());
         bids
     }
 
@@ -653,6 +694,7 @@ impl RunLoop {
         let (can_participate, response) = {
             let driver = driver.clone();
             let eth = self.eth.clone();
+            let timeout = request.time_until_deadline();
             let mut handle = tokio::task::spawn(
                 async move {
                     let fetch_response = driver.solve(request);
@@ -664,7 +706,7 @@ impl RunLoop {
                 }
                 .in_current_span(),
             );
-            tokio::time::timeout(self.config.solve_deadline, &mut handle)
+            tokio::time::timeout(timeout, &mut handle)
                 .await
                 .map_err(|_| {
                     // Abort the background task to prevent memory leaks
@@ -871,36 +913,60 @@ impl RunLoop {
         }
         Err(SettleError::Timeout)
     }
+}
 
-    /// Removes orders that are currently being settled to avoid solver
-    /// solutions conflicting with each other.
-    #[instrument(skip_all)]
-    async fn remove_in_flight_orders(
-        &self,
-        mut auction: domain::RawAuctionData,
-    ) -> domain::RawAuctionData {
-        let in_flight = self
-            .persistence
-            .fetch_in_flight_orders(auction.block)
-            .await
-            .inspect_err(|err| tracing::warn!(?err, "failed to fetch in-flight orders"))
-            .unwrap_or_default();
+/// Picks a `/solve` deadline that ends shortly before a block gets
+/// mined to maximize the chance that solutions get mined instantly.
+/// If the auction needs to cross block boundaries solvers just get
+/// a lot more time for proposing a solution.
+///
+/// This function panics if any of the time computations over- or
+/// underflow. This should not happen as we deal with times within
+/// seconds of the current time.
+fn pick_solve_deadline_impl(
+    now: chrono::DateTime<chrono::Utc>,
+    min_solve_time: Duration,
+    slot_config: Option<&SlotConfig>,
+    current_block: BlockInfo,
+) -> chrono::DateTime<chrono::Utc> {
+    let minimum_deadline = now + min_solve_time;
 
-        if in_flight.is_empty() {
-            return auction;
-        };
+    let Some(SlotConfig {
+        slot_length,
+        tx_propagation_latency,
+    }) = slot_config
+    else {
+        return minimum_deadline;
+    };
 
-        auction.orders.retain(|o| !in_flight.contains(&o.uid));
-        auction
-            .surplus_capturing_jit_order_owners
-            .retain(|owner| !in_flight.iter().any(|i| i.owner() == *owner));
-        tracing::debug!(
-            orders = ?in_flight,
-            "filtered out in-flight orders and surplus_capturing_jit_order_owners"
-        );
+    let current_block_time =
+        DateTime::from_timestamp_secs(current_block.timestamp.try_into().unwrap()).unwrap();
 
-        auction
+    for delay_in_blocks in 1..10 {
+        let target = current_block_time + slot_length.saturating_mul(delay_in_blocks)
+            - *tx_propagation_latency;
+        if target >= minimum_deadline {
+            if delay_in_blocks == 1 {
+                tracing::debug!(
+                    deadline = target.to_string(),
+                    current_block = current_block.number,
+                    "optimal solve deadline is before next block"
+                );
+            } else {
+                tracing::debug!(
+                    delay_in_blocks,
+                    deadline = target.to_string(),
+                    current_block = current_block.number,
+                    "delay auction for optimal deadline"
+                );
+            }
+            // first timestamp that gives at least the required amount of time
+            // and is aligned with the chain's block production
+            return target;
+        }
     }
+
+    minimum_deadline
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1168,5 +1234,80 @@ pub mod observe {
         let auction_uids = auction.orders.iter().map(|o| o.uid).collect::<HashSet<_>>();
         non_winning_orders.retain(|uid| auction_uids.contains(uid));
         super::Metrics::matched_unsettled(non_winning_orders);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block_with_timestamp(unix_timestamp: u64) -> BlockInfo {
+        BlockInfo {
+            timestamp: unix_timestamp,
+            number: Default::default(),
+            hash: Default::default(),
+            parent_hash: Default::default(),
+            gas_limit: Default::default(),
+            gas_price: Default::default(),
+            base_fee: Default::default(),
+            observed_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn solve_deadline_aligned_with_blockchain() {
+        let min_solve_time = Duration::from_secs(9);
+
+        type Ts = chrono::DateTime<chrono::Utc>;
+        let last_block_timestamp = "2026-06-01T12:00:00Z".parse::<Ts>().unwrap().timestamp() as u64;
+        let last_block = block_with_timestamp(last_block_timestamp);
+        let now = "2026-06-01T12:00:01Z".parse::<Ts>().unwrap();
+
+        // default deadline is `now + min_solve_time` (now + 9s)
+        let standard_deadline = "2026-06-01T12:00:10Z".parse::<Ts>().unwrap();
+
+        // syncing to blockchain is not configured -> deadline = now + min_solve_time
+        let deadline = pick_solve_deadline_impl(now, min_solve_time, None, last_block);
+        assert_eq!(deadline, standard_deadline);
+
+        // both sync parameters provided -> deadline gets synced to expected block
+        // production
+        let slot_config = Some(SlotConfig {
+            slot_length: Duration::from_secs(12),
+            tx_propagation_latency: Duration::from_secs(2),
+        });
+        let deadline =
+            pick_solve_deadline_impl(now, min_solve_time, slot_config.as_ref(), last_block);
+        // now is 1s after the last block (n), 11s left before the slot ends, 9s before
+        // we are supposed to submit a solution, 9s minimum solve time => synced
+        // deadline is equal to standard deadline (2s before block n+1)
+        assert_eq!(deadline, standard_deadline);
+
+        // now is 2s after the last block (n), 10s left before the slot ends, 8s before
+        // we are supposed to submit a solution for this slot, 9s minimum solve
+        // time => we barely missed the deadline of the current slot so now
+        // solvers get until 2s before the block n+2
+        let deadline = pick_solve_deadline_impl(
+            now + Duration::from_secs(1),
+            min_solve_time,
+            slot_config.as_ref(),
+            last_block,
+        );
+        assert_eq!(deadline, "2026-06-01T12:00:22Z".parse::<Ts>().unwrap());
+
+        // let's move to gnosis chain where 1 block is 5s (1 block is not enough for
+        // the solve deadline)
+        let slot_config = Some(SlotConfig {
+            slot_length: Duration::from_secs(5),
+            tx_propagation_latency: Duration::from_secs(2),
+        });
+        let last_block_time = "2026-06-01T12:00:00Z".parse::<Ts>().unwrap().timestamp() as u64;
+        let last_block = block_with_timestamp(last_block_time);
+        let now = "2026-06-01T12:00:01Z".parse::<Ts>().unwrap();
+        // now is 1s after the last block n, 4s left in the block, we need to submit 2s
+        // before a block, min_solve_time 9s => deadline is 2s before block n+3
+        let deadline =
+            pick_solve_deadline_impl(now, min_solve_time, slot_config.as_ref(), last_block);
+        assert_eq!(deadline, "2026-06-01T12:00:13Z".parse::<Ts>().unwrap());
     }
 }

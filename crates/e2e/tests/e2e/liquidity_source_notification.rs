@@ -4,10 +4,13 @@ use {
         providers::ext::{AnvilApi, ImpersonateConfig},
         signers::SignerSync,
     },
-    autopilot::config::Configuration,
     chrono::Utc,
-    configs::test_util::TestDefault,
-    contracts::alloy::{ERC20, LiquoriceSettlement},
+    configs::{
+        autopilot::Configuration,
+        order_quoting::{ExternalSolver, OrderQuoting},
+        test_util::TestDefault,
+    },
+    contracts::{ERC20, LiquoriceSettlement},
     driver::infra,
     e2e::{
         api,
@@ -32,7 +35,7 @@ use {
 };
 
 /// The block number from which we will fetch state for the forked tests.
-pub const FORK_BLOCK: u64 = 23326100;
+pub const FORK_BLOCK: u64 = 24843565;
 pub const USDT_WHALE: Address = address!("6AC38D1b2f0c0c3b9E816342b1CA14d91D5Ff60B");
 pub const USDC_WHALE: Address = address!("01b8697695eab322a339c4bf75740db75dc9375e");
 
@@ -187,7 +190,6 @@ async fn liquidity_source_notification(web3: Web3) {
                 merge_solutions: true,
                 haircut_bps: 0,
                 submission_keys: vec![],
-                forwarder_contract: None,
             },
         ],
         colocation::LiquidityProvider::UniswapV2,
@@ -207,21 +209,23 @@ http-timeout = "10s"
     services
         .start_autopilot(
             None,
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            Configuration::test("liquorice_solver", solver.address()),
+            Configuration {
+                order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                    "test_quoter",
+                    "http://localhost:11088/test_solver",
+                )]),
+                ..Configuration::test("liquorice_solver", solver.address())
+            },
         )
         .await;
     services
-        .start_api(
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            orderbook::config::Configuration::test_default(),
-        )
+        .start_api(configs::orderbook::Configuration {
+            order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                "test_quoter",
+                "http://localhost:11088/test_solver",
+            )]),
+            ..configs::orderbook::Configuration::test_default()
+        })
         .await;
 
     // Create CoW order
@@ -329,6 +333,7 @@ http-timeout = "10s"
         gas: None,
         flashloans: None,
         wrappers: vec![],
+        gas_fee_override: None,
     }));
 
     // Wait for trade

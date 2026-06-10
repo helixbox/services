@@ -4,13 +4,14 @@ use {
         providers::Provider,
         sol_types::SolCall,
     },
-    contracts::alloy::{
+    contracts::{
         BalancerV2Authorizer,
         BalancerV2Vault,
         CoWSwapEthFlow,
         FlashLoanRouter,
         GPv2AllowListAuthentication,
         GPv2Settlement,
+        HoneyswapRouter,
         HooksTrampoline,
         UniswapV2Factory,
         UniswapV2Router02,
@@ -88,9 +89,7 @@ impl Contracts {
             uniswap_v2_factory: UniswapV2Factory::Instance::deployed(&web3.provider)
                 .await
                 .unwrap(),
-            uniswap_v2_router: UniswapV2Router02::Instance::deployed(&web3.provider)
-                .await
-                .unwrap(),
+            uniswap_v2_router: uniswap_v2_router_for_chain(web3).await,
             weth: WETH9::Instance::deployed(&web3.provider).await.unwrap(),
             allowance: gp_settlement
                 .vaultRelayer()
@@ -264,6 +263,28 @@ impl Contracts {
     }
 }
 
+/// Resolve a router with the canonical UniswapV2 ABI for the current chain.
+async fn uniswap_v2_router_for_chain(web3: &Web3) -> UniswapV2Router02::Instance {
+    const GNOSIS_CHAIN_ID: u64 = 100;
+    let chain_id = web3
+        .provider
+        .get_chain_id()
+        .await
+        .expect("get chain id failed");
+    let address = match chain_id {
+        // Gnosis: no official Uniswap V2 deployment; use Honeyswap's router,
+        // which is what xdai's `honeyswap` preset binds in the driver.
+        GNOSIS_CHAIN_ID => HoneyswapRouter::deployment_address(&chain_id)
+            .expect("HoneyswapRouter deployment address registered for Gnosis"),
+        _ => {
+            return UniswapV2Router02::Instance::deployed(&web3.provider)
+                .await
+                .expect("UniswapV2Router02 deployment address registered for this chain");
+        }
+    };
+    UniswapV2Router02::Instance::new(address, web3.provider.clone())
+}
+
 fn role_id<Call: SolCall>(vault: Address) -> B256 {
     let mut data = [0u8; 36];
     data[12..32].copy_from_slice(vault.as_slice());
@@ -276,10 +297,7 @@ async fn grant_required_roles(
     vault: Address,
     vault_relayer: Address,
 ) {
-    use contracts::alloy::BalancerV2Vault::BalancerV2Vault::{
-        batchSwapCall,
-        manageUserBalanceCall,
-    };
+    use contracts::BalancerV2Vault::BalancerV2Vault::{batchSwapCall, manageUserBalanceCall};
 
     authorizer
         .grantRoles(

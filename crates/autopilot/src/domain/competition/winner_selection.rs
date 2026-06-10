@@ -29,10 +29,10 @@ use {
         self,
         auction::order,
         competition::{Bid, RankType, Ranked, Score, Solution, TradedOrder, Unscored},
-        eth::{self, WrappedNativeToken},
         fee,
     },
     ::winner_selection::state::{HasState, RankedItem, ScoredItem, UnscoredItem},
+    eth_domain_types::{self as eth, Address, WrappedNativeToken},
     std::collections::HashMap,
     tracing::instrument,
     winner_selection::{self as winsel},
@@ -49,10 +49,10 @@ pub struct Arbitrator(winsel::Arbitrator);
 /// changing the ordering or the `bids`.
 impl Arbitrator {
     pub fn new(max_winners: usize, wrapped_native_token: WrappedNativeToken) -> Self {
-        let token: eth::TokenAddress = wrapped_native_token.into();
+        let token: eth::TokenAddress = *wrapped_native_token;
         Self(winsel::Arbitrator {
             max_winners,
-            weth: token.0,
+            weth: *token,
         })
     }
 
@@ -139,7 +139,7 @@ impl From<&domain::Auction> for winsel::AuctionContext {
             native_prices: auction
                 .prices
                 .iter()
-                .map(|(token, price)| (token.0, price.get().0))
+                .map(|(token, price)| (Address::from(*token), price.get().0))
                 .collect(),
         }
     }
@@ -155,11 +155,6 @@ impl From<&Solution> for winsel::Solution<winsel::Unscored> {
                 .iter()
                 .map(|(uid, order)| to_winsel_order(*uid, order))
                 .collect(),
-            solution
-                .prices()
-                .iter()
-                .map(|(token, price)| (token.0, price.get().0))
-                .collect(),
         )
     }
 }
@@ -167,8 +162,8 @@ impl From<&Solution> for winsel::Solution<winsel::Unscored> {
 fn to_winsel_order(uid: domain::OrderUid, order: &TradedOrder) -> winsel::Order {
     winsel::Order {
         uid: winsel::OrderUid(uid.0),
-        sell_token: order.sell.token.0,
-        buy_token: order.buy.token.0,
+        sell_token: *order.sell.token,
+        buy_token: *order.buy.token,
         sell_amount: order.sell.amount.0,
         buy_amount: order.buy.amount.0,
         executed_sell: order.executed_sell.0,
@@ -283,7 +278,6 @@ impl Ranking {
 mod tests {
     use {
         crate::{
-            config::solver::Account,
             domain::{
                 Auction,
                 Order,
@@ -293,11 +287,12 @@ mod tests {
                     order::{self, AppDataHash},
                 },
                 competition::{Bid, Solution, TradedOrder, Unscored},
-                eth::{self, TokenAddress},
             },
             infra::Driver,
         },
         alloy::primitives::{Address, U160, U256, address},
+        configs::autopilot::solver::Account,
+        eth_domain_types::{self as eth, TokenAddress},
         hex_literal::hex,
         number::serialization::HexOrDecimalU256,
         serde::Deserialize,
@@ -913,6 +908,54 @@ mod tests {
             "expected_winners": ["Solution 1"],
             "expected_reference_scores": {
                 "Solver 1": "21037471695353421",
+            },
+        });
+        TestCase::from_json(case).validate().await;
+    }
+
+    /// A solution settling no orders gets a score of 0 which disqualifies it
+    /// from the competition.
+    #[tokio::test]
+    async fn discards_solutions_with_zero_score() {
+        let case = json!({
+            "tokens": [
+                ["Token A", address(0)],
+                ["Token B", address(1)],
+            ],
+            "auction": {
+                "orders": {
+                    "Order 1": {
+                        "side": "sell",
+                        "sell_token": "Token A",
+                        "sell_amount": "32375066190000000000000000",
+                        "buy_token": "Token B",
+                        "buy_amount": "2161512119"
+                    }
+                },
+                "prices": {
+                    "Token A": "32429355240",
+                    "Token B": "480793239987749750742974464"
+                }
+            },
+            "solutions": {
+                "Solution 1": {
+                    "solver": "Solver 1",
+                    "trades": {},
+                },
+                "Solution 2": {
+                    "solver": "Solver 2",
+                    "trades": {
+                        "Order 1": {
+                            "sell_amount": "32375066190000000000000000",
+                            "buy_amount": "2205267875"
+                        }
+                    }
+                }
+            },
+            "expected_fair_solutions": ["Solution 2"],
+            "expected_winners": ["Solution 2"],
+            "expected_reference_scores": {
+                "Solver 2": "0",
             },
         });
         TestCase::from_json(case).validate().await;

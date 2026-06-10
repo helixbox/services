@@ -4,7 +4,7 @@
 //! and update the metrics, if the event is worth measuring.
 
 use {
-    super::{Ethereum, Mempool, simulator, solver::Timeouts},
+    super::{Mempool, solver::Timeouts},
     crate::{
         boundary,
         domain::{
@@ -15,7 +15,6 @@ use {
                 Solved,
                 solution::{self, Settlement},
             },
-            eth::{self, Gas},
             mempools::{self, SubmissionSuccess},
             quote::{self, Quote},
             time::{Deadline, Remaining},
@@ -23,6 +22,7 @@ use {
         infra::solver,
         util::http,
     },
+    eth_domain_types as eth,
     ethrpc::block_stream::BlockInfo,
     std::{
         collections::{BTreeMap, HashSet},
@@ -127,9 +127,11 @@ pub fn encoding_failed(
     id: &solution::Id,
     err: &solution::Error,
     has_haircut: bool,
+    orders: &[competition::order::Uid],
 ) {
     tracing::info!(
         ?id,
+        ?orders,
         ?err,
         has_haircut,
         "discarded solution: settlement encoding"
@@ -251,21 +253,21 @@ pub fn settled(solver: &solver::Name, result: &Result<competition::Settled, comp
 }
 
 /// Observe the result of solving an auction.
-pub fn solved(solver: &str, result: &Result<Option<Solved>, competition::Error>) {
+pub fn solved(solver: &str, result: &Result<Vec<Solved>, competition::Error>) {
     match result {
-        Ok(Some(solved)) => {
-            tracing::info!(?solved, "solved auction");
-            metrics::get()
-                .solutions
-                .with_label_values(&[solver, "Success"])
-                .inc();
-        }
-        Ok(None) => {
+        Ok(solutions) if solutions.is_empty() => {
             tracing::debug!("no solution found");
             metrics::get()
                 .solutions
                 .with_label_values(&[solver, "SolutionNotFound"])
                 .inc();
+        }
+        Ok(solutions) => {
+            tracing::info!(?solutions, "solved auction");
+            metrics::get()
+                .solutions
+                .with_label_values(&[solver, "Success"])
+                .inc_by(solutions.len() as u64);
         }
         Err(err) => {
             tracing::warn!(?err, "failed to solve auction");
@@ -304,6 +306,9 @@ pub fn quoted(solver: &solver::Name, order: &quote::Order, result: &Result<Quote
                             "NoSolutions"
                         }
                         quote::Error::QuotingFailed(quote::QuotingFailed::Math) => "MathError",
+                        quote::Error::QuotingFailed(quote::QuotingFailed::UnsupportedToken) => {
+                            "UnsupportedToken"
+                        }
                         quote::Error::DeadlineExceeded(_) => "DeadlineExceeded",
                         quote::Error::Blockchain(_) => "BlockchainError",
                         quote::Error::Solver(solver::Error::Http(_)) => "SolverHttpError",
@@ -311,6 +316,7 @@ pub fn quoted(solver: &solver::Name, order: &quote::Order, result: &Result<Quote
                             "SolverDeserializeError"
                         }
                         quote::Error::Solver(solver::Error::Dto(_)) => "SolverDtoError",
+                        quote::Error::Solver(solver::Error::CustomError(_)) => "SolverCustomError",
                         quote::Error::Boundary(_) => "Unknown",
                         quote::Error::Encoding(_) => "Encoding",
                     },
@@ -353,80 +359,49 @@ pub fn solver_response(
         .observe(compute_time.as_secs_f64());
 }
 
-/// Observe the result of mempool transaction execution.
-pub fn mempool_executed(
+/// Log a single mempool submission attempt. Called inline from the racing
+/// task so that errors from mempools that later get superseded are still
+/// visible in logs. Metrics are emitted separately from `update_metrics`
+/// once the race outcome is known.
+pub fn mempool_log(
     mempool: &Mempool,
     settlement: &Settlement,
-    res: &Result<SubmissionSuccess, mempools::Error>,
+    result: &Result<SubmissionSuccess, mempools::Error>,
 ) {
-    match res {
-        Ok(submission) => {
-            tracing::info!(
-                txid = ?submission.tx_hash,
-                %mempool,
-                ?settlement,
-                "sending transaction via mempool succeeded",
-            );
-        }
-        Err(mempools::Error::Disabled) => {
-            tracing::debug!(
-                %mempool,
-                "sending transaction via mempool disabled",
-            );
-        }
-        Err(err) => {
-            tracing::warn!(
-                ?err,
-                %mempool,
-                ?settlement,
-                "sending transaction via mempool failed",
-            );
-        }
+    match result {
+        Ok(submission) => tracing::info!(
+            txid = ?submission.tx_hash,
+            %mempool,
+            ?settlement,
+            "sending transaction via mempool succeeded",
+        ),
+        Err(mempools::Error::Disabled) => tracing::debug!(
+            %mempool,
+            "mempool disabled, not sending transaction",
+        ),
+        Err(err) => tracing::warn!(
+            ?err,
+            %mempool,
+            ?settlement,
+            "sending transaction via mempool failed",
+        ),
     }
-    let result = match res {
-        Ok(_) => "Success",
-        Err(mempools::Error::Revert { .. } | mempools::Error::SimulationRevert { .. }) => "Revert",
-        Err(mempools::Error::Expired { .. }) => "Expired",
-        Err(mempools::Error::Other(_)) => "Other",
-        Err(mempools::Error::Disabled) => "Disabled",
-    };
+}
+
+/// Emit per-mempool race counters with the final, reclassified label
+/// (`Success` / `Revert` / `Expired` / `Other` / `Superseded` / `Disabled`).
+/// Called once per mempool after the race resolves.
+pub fn mempool_submission_result(mempool: &Mempool, label: &str, blocks_passed: Option<u64>) {
+    let name = mempool.to_string();
     metrics::get()
         .mempool_submission
-        .with_label_values(&[mempool.to_string().as_str(), result])
+        .with_label_values(&[name.as_str(), label])
         .inc();
-
-    // For some of the errors we are interested in observing the exact block numbers
-    // passed since the first submission.
-    let blocks_passed = match res {
-        Ok(SubmissionSuccess {
-            submitted_at_block,
-            included_in_block,
-            ..
-        }) => Some(("Success", &submitted_at_block.0, &included_in_block.0)),
-        Err(mempools::Error::Revert {
-            tx_id: _,
-            submitted_at_block,
-            reverted_at_block,
-        }) => Some(("Revert", submitted_at_block, reverted_at_block)),
-        Err(mempools::Error::SimulationRevert {
-            submitted_at_block,
-            reverted_at_block,
-        }) => Some(("Revert", submitted_at_block, reverted_at_block)),
-        Err(mempools::Error::Expired {
-            tx_id: _,
-            submitted_at_block,
-            submission_deadline,
-        }) => Some(("Expired", submitted_at_block, submission_deadline)),
-        Err(mempools::Error::Other(_)) => None,
-        Err(mempools::Error::Disabled) => None,
-    };
-
-    if let Some((label, start, end)) = blocks_passed {
-        let blocks_passed = end.saturating_sub(*start);
+    if let Some(blocks) = blocks_passed {
         metrics::get()
             .mempool_submission_results_blocks_passed
-            .with_label_values(&[mempool.to_string().as_str(), label])
-            .inc_by(blocks_passed);
+            .with_label_values(&[name.as_str(), label])
+            .inc_by(blocks);
     }
 }
 
@@ -447,6 +422,7 @@ fn competition_error(err: &competition::Error) -> &'static str {
         competition::Error::Solver(solver::Error::Http(_)) => "SolverHttpError",
         competition::Error::Solver(solver::Error::Deserialize(_)) => "SolverDeserializeError",
         competition::Error::Solver(solver::Error::Dto(_)) => "SolverDtoError",
+        competition::Error::Solver(solver::Error::CustomError(_)) => "SolverCustomError",
         competition::Error::SubmissionError => "SubmissionError",
         competition::Error::TooManyPendingSettlements => "TooManyPendingSettlements",
         competition::Error::NoValidOrdersFound => "NoValidOrdersFound",
@@ -479,13 +455,4 @@ pub fn order_excluded_from_auction(
     reason: OrderExcludedFromAuctionReason,
 ) {
     tracing::trace!(uid=?order.uid, ?reason, "order excluded from auction");
-}
-
-/// Observe that a settlement was simulated
-pub fn simulated(eth: &Ethereum, tx: &eth::Tx, gas: &Result<Gas, simulator::Error>) {
-    let block: eth::BlockNo = eth.current_block().borrow().number.into();
-    match gas {
-        Ok(gas) => tracing::debug!(block = ?block, gas = ?gas.0, ?tx, "simulated settlement"),
-        Err(err) => tracing::debug!(block = ?block, ?err, "simulated settlement"),
-    }
 }

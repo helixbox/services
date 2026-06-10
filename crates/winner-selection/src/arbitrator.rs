@@ -68,6 +68,9 @@ impl Arbitrator {
         let (mut solutions, scores_by_solution) =
             self.compute_scores_by_solution(solutions, context);
 
+        // Discard any solutions with a score of 0 as they are invalid
+        solutions.retain(|solution| !solution.score().is_zero());
+
         // Sort by score descending
         solutions.sort_by_key(|solution| Reverse(solution.score()));
 
@@ -182,7 +185,7 @@ impl Arbitrator {
                 continue;
             }
 
-            let score = self.compute_order_score(order, solution, context)?;
+            let score = self.compute_order_score(order, context)?;
 
             let token_pair = DirectedTokenPair {
                 sell: order.sell_token,
@@ -202,25 +205,11 @@ impl Arbitrator {
     /// Follows CIP-38 as the base of the score computation.
     ///
     /// Denominated in NATIVE token.
-    fn compute_order_score<T>(
-        &self,
-        order: &Order,
-        solution: &Solution<T>,
-        context: &AuctionContext,
-    ) -> Result<U256> {
+    fn compute_order_score(&self, order: &Order, context: &AuctionContext) -> Result<U256> {
         let native_price_buy = context
             .native_prices
             .get(&order.buy_token)
             .context("missing native price for buy token")?;
-
-        let _uniform_sell_price = solution
-            .prices()
-            .get(&order.sell_token)
-            .context("missing uniform clearing price for sell token")?;
-        let _uniform_buy_price = solution
-            .prices()
-            .get(&order.buy_token)
-            .context("missing uniform clearing price for buy token")?;
 
         let custom_prices = self.calculate_custom_prices_from_executed(order);
 

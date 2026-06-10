@@ -1,7 +1,7 @@
 use {
     alloy::rpc::types::Log,
     anyhow::{Context, Result},
-    contracts::alloy::GPv2Settlement::GPv2Settlement::{self, GPv2SettlementEvents},
+    contracts::GPv2Settlement::GPv2Settlement::{self, GPv2SettlementEvents},
     database::{
         OrderUid,
         PgTransaction,
@@ -31,7 +31,6 @@ pub fn contract_to_db_events(
                 GPv2SettlementEvents::PreSignature(event) => {
                     Some(convert_presignature(&event, log))
                 }
-                // TODO: handle new events
                 GPv2SettlementEvents::Interaction(_) => None,
             }
         })

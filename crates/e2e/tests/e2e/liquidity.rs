@@ -6,10 +6,13 @@ use {
             ext::{AnvilApi, ImpersonateConfig},
         },
     },
-    autopilot::config::Configuration,
     chrono::{NaiveDateTime, Utc},
-    configs::test_util::TestDefault,
-    contracts::alloy::{ERC20, IZeroex},
+    configs::{
+        autopilot::Configuration,
+        order_quoting::{ExternalSolver, OrderQuoting},
+        test_util::TestDefault,
+    },
+    contracts::{ERC20, IZeroex},
     e2e::{
         api::zeroex::{Eip712TypedZeroExOrder, ZeroExApi},
         assert_approximately_eq,
@@ -33,7 +36,7 @@ use {
 };
 
 /// The block number from which we will fetch state for the forked tests.
-pub const FORK_BLOCK: u64 = 23112197;
+pub const FORK_BLOCK: u64 = 24843565;
 pub const USDT_WHALE: Address = address!("F977814e90dA44bFA03b6295A0616a897441aceC");
 pub const USDC_WHALE: Address = address!("28c6c06298d514db089934071355e5743bf21d60");
 
@@ -196,21 +199,23 @@ async fn zero_ex_liquidity(web3: Web3) {
     services
         .start_autopilot(
             None,
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            Configuration::test("test_solver", solver.address()),
+            Configuration {
+                order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                    "test_quoter",
+                    "http://localhost:11088/test_solver",
+                )]),
+                ..Configuration::test("test_solver", solver.address())
+            },
         )
         .await;
     services
-        .start_api(
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            orderbook::config::Configuration::test_default(),
-        )
+        .start_api(configs::orderbook::Configuration {
+            order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                "test_quoter",
+                "http://localhost:11088/test_solver",
+            )]),
+            ..configs::orderbook::Configuration::test_default()
+        })
         .await;
 
     // Drive solution

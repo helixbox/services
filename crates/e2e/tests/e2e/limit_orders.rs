@@ -4,20 +4,25 @@ use {
         primitives::{Address, U256, address},
         providers::ext::{AnvilApi, ImpersonateConfig},
     },
-    autopilot::config::{
-        Configuration,
-        fee_policy::{FeePoliciesConfig, FeePolicy, FeePolicyKind},
-        solver::{Account, Solver},
-    },
     bigdecimal::BigDecimal,
-    configs::test_util::TestDefault,
-    contracts::alloy::ERC20,
+    configs::{
+        autopilot::{
+            Configuration,
+            fee_policy::{FeePoliciesConfig, FeePolicy, FeePolicyKind},
+            run_loop::RunLoopConfig,
+            solver::{Account, Solver},
+        },
+        order_quoting::{ExternalSolver, OrderQuoting},
+        orderbook::order_validation::OrderValidationConfig,
+        test_util::TestDefault,
+    },
+    contracts::ERC20,
     database::byte_array::ByteArray,
-    driver::domain::eth::NonZeroU256,
     e2e::setup::{
         proxy::{OnRequest, ReverseProxy},
         *,
     },
+    eth_domain_types::NonZeroU256,
     ethrpc::alloy::CallBuilderExt,
     model::{
         order::{OrderClass, OrderCreation, OrderKind},
@@ -25,7 +30,6 @@ use {
         signature::EcdsaSigningScheme,
     },
     number::{conversions::big_decimal_to_big_uint, units::EthUnit},
-    orderbook::config::order_validation::OrderValidationConfig,
     shared::web3::Web3,
     std::{
         collections::HashMap,
@@ -97,9 +101,9 @@ async fn local_node_buy_order_with_haircut() {
 }
 
 /// The block number from which we will fetch state for the forked tests.
-const FORK_BLOCK_MAINNET: u64 = 23112197;
-/// USDC whale address as per [FORK_BLOCK_MAINNET].
-const USDC_WHALE_MAINNET: Address = address!("28c6c06298d514db089934071355e5743bf21d60");
+const FORK_BLOCK_MAINNET: u64 = 24843565;
+/// USDT whale address as per [FORK_BLOCK_MAINNET].
+const USDT_WHALE_MAINNET: Address = address!("F977814e90dA44bFA03b6295A0616a897441aceC");
 
 #[tokio::test]
 #[ignore]
@@ -113,7 +117,7 @@ async fn forked_node_mainnet_single_limit_order() {
     .await;
 }
 
-const FORK_BLOCK_GNOSIS: u64 = 41502478;
+const FORK_BLOCK_GNOSIS: u64 = 45588623;
 /// USDC whale address as per [FORK_BLOCK_GNOSIS].
 const USDC_WHALE_GNOSIS: Address = address!("d4A39d219ADB43aB00739DC5D876D98Fdf0121Bf");
 
@@ -349,22 +353,23 @@ async fn two_limit_orders_test(web3: Web3) {
     let backend: Url = "http://0.0.0.0:11088".parse().unwrap();
     let _proxy = ReverseProxy::start_with_callback(proxy_addr, &[backend], on_request);
 
+    let config = Configuration::test_no_drivers();
     let config = Configuration {
         drivers: vec![Solver::new(
             "test_solver".to_string(),
             "http://localhost:11089/test_solver".parse().unwrap(),
             Account::Address(solver.address()),
         )],
-        ..Configuration::test_no_drivers()
+        run_loop: RunLoopConfig {
+            compress_solve_request: true,
+            ..config.run_loop
+        },
+        ..config
     };
     services
         .start_protocol_with_args(
-            ExtraServiceArgs {
-                autopilot: vec!["--compress-solve-request=true".to_string()],
-                ..Default::default()
-            },
             config,
-            orderbook::config::Configuration::test_default(),
+            configs::orderbook::Configuration::test_default(),
             solver,
         )
         .await;
@@ -502,23 +507,24 @@ async fn two_limit_orders_multiple_winners_test(web3: Web3) {
 
     let services = Services::new(&onchain).await;
     services
-        .start_api(
-            vec![
-                "--price-estimation-drivers=solver1|http://localhost:11088/test_solver".to_string(),
-            ],
-            orderbook::config::Configuration {
-                native_price_estimation: orderbook::config::native_price::NativePriceConfig {
-                    estimators: price_estimation::NativePriceEstimators::new(vec![vec![
-                        price_estimation::NativePriceEstimator::driver(
+        .start_api(configs::orderbook::Configuration {
+            order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                "solver1",
+                "http://localhost:11088/test_solver",
+            )]),
+            native_price_estimation: configs::orderbook::native_price::NativePriceConfig {
+                estimators: configs::native_price_estimators::NativePriceEstimators::new(vec![
+                    vec![
+                        configs::native_price_estimators::NativePriceEstimator::driver(
                             "test_quoter".to_string(),
                             "http://localhost:11088/test_solver".parse().unwrap(),
                         ),
-                    ]]),
-                    ..orderbook::config::native_price::NativePriceConfig::test_default()
-                },
-                ..orderbook::config::Configuration::test_default()
+                    ],
+                ]),
+                ..configs::orderbook::native_price::NativePriceConfig::test_default()
             },
-        )
+            ..configs::orderbook::Configuration::test_default()
+        })
         .await;
 
     // Place Orders
@@ -556,13 +562,10 @@ async fn two_limit_orders_multiple_winners_test(web3: Web3) {
 
     // Start autopilot only once all the orders are created.
 
+    let config = Configuration::test_no_drivers();
     services
         .start_autopilot(
             None,
-            vec![
-                "--price-estimation-drivers=solver1|http://localhost:11088/test_solver".to_string(),
-                "--max-winners-per-auction=2".to_string(),
-            ],
             Configuration {
                 drivers: vec![
                     Solver::new(
@@ -572,7 +575,15 @@ async fn two_limit_orders_multiple_winners_test(web3: Web3) {
                     ),
                     Solver::test("solver2", solver_b.address()),
                 ],
-                ..Configuration::test_no_drivers()
+                order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                    "solver1",
+                    "http://localhost:11088/test_solver",
+                )]),
+                run_loop: RunLoopConfig {
+                    max_winners_per_auction: std::num::NonZeroUsize::new(2).unwrap(),
+                    ..config.run_loop
+                },
+                ..config
             },
         )
         .await;
@@ -740,27 +751,27 @@ async fn too_many_limit_orders_test(web3: Web3) {
     services
         .start_autopilot(
             None,
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            Configuration::test("test_solver", solver_address),
+            Configuration {
+                order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                    "test_quoter",
+                    "http://localhost:11088/test_solver",
+                )]),
+                ..Configuration::test("test_solver", solver_address)
+            },
         )
         .await;
     services
-        .start_api(
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            orderbook::config::Configuration {
-                order_validation: OrderValidationConfig {
-                    max_limit_orders_per_user: 1,
-                    ..Default::default()
-                },
-                ..orderbook::config::Configuration::test_default()
+        .start_api(configs::orderbook::Configuration {
+            order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                "test_quoter",
+                "http://localhost:11088/test_solver",
+            )]),
+            order_validation: OrderValidationConfig {
+                max_limit_orders_per_user: 1,
+                ..Default::default()
             },
-        )
+            ..configs::orderbook::Configuration::test_default()
+        })
         .await;
 
     let order = OrderCreation {
@@ -843,27 +854,27 @@ async fn limit_does_not_apply_to_in_market_orders_test(web3: Web3) {
     services
         .start_autopilot(
             None,
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            Configuration::test("test_solver", solver_address),
+            Configuration {
+                order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                    "test_quoter",
+                    "http://localhost:11088/test_solver",
+                )]),
+                ..Configuration::test("test_solver", solver_address)
+            },
         )
         .await;
     services
-        .start_api(
-            vec![
-                "--price-estimation-drivers=test_quoter|http://localhost:11088/test_solver"
-                    .to_string(),
-            ],
-            orderbook::config::Configuration {
-                order_validation: OrderValidationConfig {
-                    max_limit_orders_per_user: 1,
-                    ..Default::default()
-                },
-                ..orderbook::config::Configuration::test_default()
+        .start_api(configs::orderbook::Configuration {
+            order_quoting: OrderQuoting::test_with_drivers(vec![ExternalSolver::new(
+                "test_quoter",
+                "http://localhost:11088/test_solver",
+            )]),
+            order_validation: OrderValidationConfig {
+                max_limit_orders_per_user: 1,
+                ..Default::default()
             },
-        )
+            ..configs::orderbook::Configuration::test_default()
+        })
         .await;
 
     let quote_request = OrderQuoteRequest {
@@ -970,12 +981,12 @@ async fn forked_mainnet_single_limit_order_test(web3: Web3) {
         web3.provider.clone(),
     );
 
-    // Give trader some USDC
+    // Give trader some USDT
     web3.provider
         .anvil_send_impersonated_transaction_with_config(
-            token_usdc
+            token_usdt
                 .transfer(trader.address(), 1000u64.matom())
-                .from(USDC_WHALE_MAINNET)
+                .from(USDT_WHALE_MAINNET)
                 .into_transaction_request(),
             ImpersonateConfig {
                 fund_amount: None,
@@ -989,7 +1000,7 @@ async fn forked_mainnet_single_limit_order_test(web3: Web3) {
         .unwrap();
 
     // Approve GPv2 for trading
-    token_usdc
+    token_usdt
         .approve(onchain.contracts().allowance, 1000u64.matom())
         .from(trader.address())
         .send_and_watch()
@@ -1003,9 +1014,9 @@ async fn forked_mainnet_single_limit_order_test(web3: Web3) {
     onchain.mint_block().await;
 
     let order = OrderCreation {
-        sell_token: *token_usdc.address(),
+        sell_token: *token_usdt.address(),
         sell_amount: 1000u64.matom(),
-        buy_token: *token_usdt.address(),
+        buy_token: *token_usdc.address(),
         buy_amount: 500u64.matom(),
         valid_to: model::time::now_in_epoch_seconds() + 300,
         kind: OrderKind::Sell,
@@ -1021,8 +1032,8 @@ async fn forked_mainnet_single_limit_order_test(web3: Web3) {
     // may time out)
     let _ = services
         .submit_quote(&OrderQuoteRequest {
-            sell_token: *token_usdc.address(),
-            buy_token: *token_usdt.address(),
+            sell_token: *token_usdt.address(),
+            buy_token: *token_usdc.address(),
             side: OrderQuoteSide::Sell {
                 sell_amount: SellAmount::BeforeFee {
                     value: (1000u64.matom()).try_into().unwrap(),
@@ -1032,8 +1043,8 @@ async fn forked_mainnet_single_limit_order_test(web3: Web3) {
         })
         .await;
 
-    let sell_token_balance_before = token_usdc.balanceOf(trader.address()).call().await.unwrap();
-    let buy_token_balance_before = token_usdt.balanceOf(trader.address()).call().await.unwrap();
+    let sell_token_balance_before = token_usdt.balanceOf(trader.address()).call().await.unwrap();
+    let buy_token_balance_before = token_usdc.balanceOf(trader.address()).call().await.unwrap();
     let order_id = services.create_order(&order).await.unwrap();
     let limit_order = services.get_order(&order_id).await.unwrap();
     assert_eq!(limit_order.metadata.class, OrderClass::Limit);
@@ -1043,8 +1054,8 @@ async fn forked_mainnet_single_limit_order_test(web3: Web3) {
 
     wait_for_condition(TIMEOUT, || async {
         onchain.mint_block().await;
-        let sell_token_balance_after = token_usdc.balanceOf(trader.address()).call().await.unwrap();
-        let buy_token_balance_after = token_usdt.balanceOf(trader.address()).call().await.unwrap();
+        let sell_token_balance_after = token_usdt.balanceOf(trader.address()).call().await.unwrap();
+        let buy_token_balance_after = token_usdc.balanceOf(trader.address()).call().await.unwrap();
 
         (sell_token_balance_before > sell_token_balance_after)
             && (buy_token_balance_after >= buy_token_balance_before + 500u64.matom())
@@ -1166,12 +1177,9 @@ async fn no_liquidity_limit_order(web3: Web3) {
     let services = Services::new(&onchain).await;
     services
         .start_protocol_with_args(
-            ExtraServiceArgs {
-                autopilot: vec![format!("--unsupported-tokens={:#x}", unsupported.address())],
-                ..Default::default()
-            },
             Configuration {
                 drivers: vec![Solver::test("test_solver", solver.address())],
+                unsupported_tokens: vec![*unsupported.address()],
                 fee_policies: FeePoliciesConfig {
                     policies: vec![
                         FeePolicy {
@@ -1179,21 +1187,22 @@ async fn no_liquidity_limit_order(web3: Web3) {
                                 factor: 0.5.try_into().unwrap(),
                                 max_volume_factor: 0.01.try_into().unwrap(),
                             },
-                            order_class: autopilot::config::fee_policy::FeePolicyOrderClass::Limit,
+                            order_class: configs::autopilot::fee_policy::FeePolicyOrderClass::Limit,
                         },
                         FeePolicy {
                             kind: FeePolicyKind::PriceImprovement {
                                 factor: 0.5.try_into().unwrap(),
                                 max_volume_factor: 0.01.try_into().unwrap(),
                             },
-                            order_class: autopilot::config::fee_policy::FeePolicyOrderClass::Market,
+                            order_class:
+                                configs::autopilot::fee_policy::FeePolicyOrderClass::Market,
                         },
                     ],
                     ..Default::default()
                 },
                 ..Configuration::test_no_drivers()
             },
-            orderbook::config::Configuration::test_default(),
+            configs::orderbook::Configuration::test_default(),
             solver,
         )
         .await;
@@ -1362,9 +1371,8 @@ async fn sell_order_with_haircut_test(web3: Web3) {
     // Start protocol with 500 bps (5%) haircut
     services
         .start_protocol_with_args_and_haircut(
-            Default::default(),
             Configuration::test("test_solver", solver.address()),
-            orderbook::config::Configuration::test_default(),
+            configs::orderbook::Configuration::test_default(),
             solver,
             500,
         )
@@ -1563,9 +1571,8 @@ async fn buy_order_with_haircut_test(web3: Web3) {
     // Start protocol with 500 bps (5%) haircut
     services
         .start_protocol_with_args_and_haircut(
-            Default::default(),
             Configuration::test("test_solver", solver.address()),
-            orderbook::config::Configuration::test_default(),
+            configs::orderbook::Configuration::test_default(),
             solver,
             500,
         )

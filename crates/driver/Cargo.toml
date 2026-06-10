@@ -16,15 +16,10 @@ path = "src/main.rs"
 
 [dependencies]
 account-balances = { workspace = true }
-alloy = { workspace = true, features = [
-  "json-rpc",
-  "provider-anvil-api",
-  "provider-txpool-api",
-  "rand",
-  "rpc-types",
-  "signer-aws",
-  "sol-types"
-] }
+alloy = {
+  workspace = true,
+  features = ["json-rpc", "provider-anvil-api", "provider-txpool-api", "rand", "rpc-types", "signer-aws", "sol-types"]
+}
 app-data = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
@@ -34,15 +29,18 @@ bigdecimal = { workspace = true }
 bytes-hex = { workspace = true }  # may get marked as unused but it's used with serde
 chain = { workspace = true }
 chrono = { workspace = true, default-features = false, features = ["clock"] }
+configs = { workspace = true }
 const-hex = { workspace = true }
 cow-amm = { workspace = true }
 dashmap = { workspace = true }
 derive_more = { workspace = true }
+eth-domain-types = { workspace = true }
 ethrpc = { workspace = true }
 event-indexing = { workspace = true }
 futures = { workspace = true }
 gas-price-estimation = { workspace = true }
 hex-literal = { workspace = true }
+http-client = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
@@ -62,6 +60,7 @@ serde = { workspace = true, features = ["derive"] }
 serde-ext = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
+simulator = { workspace = true }
 solvers-dto = { path = "../solvers-dto" }
 thiserror = { workspace = true }
 tikv-jemallocator = { workspace = true }
